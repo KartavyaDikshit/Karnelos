@@ -7,7 +7,7 @@ all: build
 build:
 	cd kernel && BOOTLOADER_FEATURES=map_physical_memory cargo bootimage --target x86_64-unknown-none
 
-QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -m 4G -cpu max -nic none
+QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -m 4G -cpu max -nic none -device isa-debug-exit,iobase=0xf4,iosize=0x04
 
 # Serial layout:
 #   COM1 (0x3F8) -> stdio: user terminal
@@ -31,13 +31,16 @@ run-debug: build
 run-smp: build
 	qemu-system-x86_64 $(QEMUFLAGS) $(QEMUFLAGS_SERIAL) -smp 4 -nographic -no-reboot
 
-# Start daemon and QEMU together
+# Start daemon and QEMU together (auto-restarts after gen→reboot)
 run-daemon: build daemon-build
-	@echo "Starting daemon (background) and QEMU..."
+	@echo "Starting daemon (background) and QEMU (restart loop)..."
 	(cd daemon && cargo run --release &) && \
 	sleep 2 && \
-	qemu-system-x86_64 $(QEMUFLAGS) $(QEMUFLAGS_SERIAL) -smp 4 -nographic -no-reboot; \
-	kill %1 2>/dev/null || true
+	while true; do \
+		qemu-system-x86_64 $(QEMUFLAGS) $(QEMUFLAGS_SERIAL) -smp 4 -nographic -no-reboot || true; \
+		echo "--- QEMU exited (restarting...) ---"; \
+		sleep 1; \
+	done
 
 # Quick smoke test (boots and exits after 10s)
 run-test: build

@@ -13,6 +13,12 @@ pub fn inb(port: u16) -> u8 {
     val
 }
 
+pub fn reboot() -> ! {
+    // Exit QEMU via isa-debug-exit device (port 0xF4, needs -device flag)
+    unsafe { core::arch::asm!("mov dx, 0xF4; mov al, 0x31; out dx, al", options(nostack, nomem)); }
+    loop { unsafe { core::arch::asm!("hlt"); } }
+}
+
 pub fn debug_putc(c: u8) { outb(DEBUG_PORT, c); }
 
 pub fn debug_write(s: &[u8]) {
@@ -44,6 +50,7 @@ pub fn serial_write_port(port: u16, s: &[u8]) {
     for &b in s { serial_putc_port(port, b); }
 }
 
+#[allow(dead_code)]
 pub fn serial_read_port(port: u16) -> Option<u8> {
     if inb(port + 5) & 1 != 0 { Some(inb(port)) } else { None }
 }
@@ -70,11 +77,11 @@ pub fn vga_clear(fg: u8, bg: u8) {
 
 #[allow(dead_code)]
 pub struct VgaWriter {
-    row: usize,
-    col: usize,
-    fg: u8,
-    bg: u8,
-    scroll_top: usize,
+    pub row: usize,
+    pub col: usize,
+    pub fg: u8,
+    pub bg: u8,
+    pub scroll_top: usize,
 }
 
 #[allow(dead_code)]
@@ -129,4 +136,20 @@ impl VgaWriter {
         }
         for c in 0..80 { vga_putc(b' ', 24, c, self.fg, self.bg); }
     }
+}
+
+use spin::Mutex;
+
+pub static VGA_WRITER: Mutex<VgaWriter> = Mutex::new(VgaWriter {
+    row: 8, col: 0, fg: 0x0F, bg: 0x00, scroll_top: 8,
+});
+
+pub fn console_write(s: &[u8]) {
+    serial_write(s);
+    VGA_WRITER.lock().write_str(s);
+}
+
+pub fn console_putc(c: u8) {
+    serial_putc(c);
+    VGA_WRITER.lock().write_byte(c);
 }

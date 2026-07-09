@@ -92,7 +92,11 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
                 shell.handle_char(c);
             }
         }
-        // Future: read daemon responses from COM2
-        let _ = io::serial_read_port(io::COM2);
+        if shell.awaiting_response() {
+            if io::inb(io::COM2 + 5) & 1 != 0 {
+                let c = io::inb(io::COM2);
+                shell.handle_daemon_byte(c);
+            }
+        }
     }
 }

@@ -13,20 +13,20 @@ const BITMAP_SIZE: usize = MAX_FRAMES / 8;
 const HEAP_SIZE: usize = 10 * 1024 * 1024;
 
 fn hex(v: u64) {
-    io::serial_write(b"0x");
+    io::console_write(b"0x");
     for s in (0..16).rev() {
         let nib = ((v >> (s * 4)) & 0xF) as u8;
-        io::serial_putc(if nib < 10 { b'0' + nib } else { b'A' + nib - 10 });
+        io::console_putc(if nib < 10 { b'0' + nib } else { b'A' + nib - 10 });
     }
 }
 
 pub fn dec(v: usize) {
-    if v == 0 { io::serial_putc(b'0'); return; }
+    if v == 0 { io::console_putc(b'0'); return; }
     let mut b = [0u8; 20];
     let mut i = 20;
     let mut n = v;
     while n > 0 { i -= 1; b[i] = b'0' + (n % 10) as u8; n /= 10; }
-    io::serial_write(&b[i..]);
+    io::console_write(&b[i..]);
 }
 
 pub struct FrameAllocator {
@@ -101,14 +101,14 @@ impl FrameAllocator {
     }
 
     pub fn print_info(&self, phys_mem_offset: u64) {
-        io::serial_write(b"\r\n=== Memory Info ===\r\n");
-        io::serial_write(b"Physical memory offset: "); hex(phys_mem_offset); io::serial_write(b"\r\n");
-        io::serial_write(b"Total RAM: "); hex(self.total_memory()); io::serial_write(b"\r\n");
-        io::serial_write(b"Free RAM:  "); hex(self.free_memory()); io::serial_write(b"\r\n");
-        io::serial_write(b"Used RAM:  "); hex(self.used_memory()); io::serial_write(b"\r\n");
-        io::serial_write(b"Frames: "); dec(self.total_frames); io::serial_write(b" total, ");
-        dec(self.total_frames - self.used_frames); io::serial_write(b" free\r\n");
-        io::serial_write(b"Bitmap size: "); dec(BITMAP_SIZE); io::serial_write(b" bytes\r\n");
+        io::console_write(b"\r\n=== Memory Info ===\r\n");
+        io::console_write(b"Physical memory offset: "); hex(phys_mem_offset); io::console_write(b"\r\n");
+        io::console_write(b"Total RAM: "); hex(self.total_memory()); io::console_write(b"\r\n");
+        io::console_write(b"Free RAM:  "); hex(self.free_memory()); io::console_write(b"\r\n");
+        io::console_write(b"Used RAM:  "); hex(self.used_memory()); io::console_write(b"\r\n");
+        io::console_write(b"Frames: "); dec(self.total_frames); io::console_write(b" total, ");
+        dec(self.total_frames - self.used_frames); io::console_write(b" free\r\n");
+        io::console_write(b"Bitmap size: "); dec(BITMAP_SIZE); io::console_write(b" bytes\r\n");
     }
 
     fn total_memory(&self) -> u64 { self.total_frames as u64 * PAGE_SIZE }
@@ -153,7 +153,7 @@ pub fn init(boot_info: &'static BootInfo) {
     }
 
     FRAME_ALLOCATOR.lock().print_info(offset);
-    io::serial_write(b"Memory manager initialized\r\n");
+    io::console_write(b"Memory manager initialized\r\n");
 }
 
 pub fn init_heap() {
@@ -162,13 +162,13 @@ pub fn init_heap() {
     unsafe {
         HEAP_ALLOCATOR.lock().init(heap_virt.as_u64() as *mut u8, HEAP_SIZE);
     }
-    io::serial_write(b"Heap initialized: ");
+    io::console_write(b"Heap initialized: ");
     hex(heap_virt.as_u64());
-    io::serial_write(b" (phys ");
+    io::console_write(b" (phys ");
     hex(heap_phys);
-    io::serial_write(b", size ");
+    io::console_write(b", size ");
     dec(HEAP_SIZE);
-    io::serial_write(b")\r\n");
+    io::console_write(b")\r\n");
 }
 
 use linked_list_allocator::LockedHeap;

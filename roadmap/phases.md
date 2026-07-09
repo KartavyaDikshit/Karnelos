@@ -2,93 +2,98 @@
 
 ## Phase 0: Kernel Skeleton + Build System
 
-**Goal:** A Rust no_std kernel that boots in QEMU, prints to UART/screen, and can be
-rebuilt with `make`. The foundation everything builds on.
+**Status: Complete**
 
 ### Deliverables
-- [x] Rust toolchain (nightly + x86_64-unknown-none target)
-- [x] `bootimage` build pipeline (bootable kernel image)
-- [ ] Bootloader integration (Limine or `bootloader` crate)
-- [ ] Minimal entry point that prints "Karnelos v0.1" to VGA buffer + UART
-- [ ] Linker script and memory layout
-- [ ] Makefile with `build`, `run`, `clean` targets
-- [ ] `.gitignore` for build artifacts
-- [ ] Root README with setup and testing instructions
-
-### Build & Test
-```bash
-cd kernel
-cargo bootimage
-qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin
-```
-
-**Estimated effort:** 1-2 days
+- [x] Rust toolchain (nightly-2025-07-08 + x86_64-unknown-none target)
+- [x] `bootimage` build pipeline (bootloader v0.9.35 with `map_physical_memory`)
+- [x] Entry point that prints banner to VGA buffer + UART
+- [x] Makefile with `build`, `run`, `run-daemon`, `clean` targets
+- [x] `.gitignore` for build artifacts
+- [x] Root README with setup and testing instructions
 
 ---
 
 ## Phase 1: Memory Manager
 
-**Goal:** The kernel has a working physical + virtual memory manager.
+**Status: Complete**
 
 ### Deliverables
-- [ ] Physical frame allocator (bitmap or buddy system)
-- [ ] Virtual memory manager (page tables, higher-half mapping)
-- [ ] Heap allocator (bump → slab/buddy)
-- [ ] Memory-mapped I/O for device access
-- [ ] LLM can regenerate the allocator (e.g., switch from bump to slab)
-
-### Test
-- Kernel boots and prints memory layout (total RAM, free pages, heap address)
-- User can say "show memory map" and see page table structure
-
-**Estimated effort:** 3-5 days
+- [x] Physical frame allocator (bitmap, 4GB max, 131072 bytes bitmap)
+- [x] Virtual memory support (bootloader provides `map_physical_memory`, phys-to-virt conversion)
+- [x] Heap allocator (10MB via `linked_list_allocator::LockedHeap`)
+- [x] `alloc` crate support (Vec, String, Box, format! all work)
+- [x] Memory info display (total/free/used frames, heap address)
 
 ---
 
 ## Phase 2: Interrupts + Input
 
-**Goal:** The kernel handles interrupts and takes keyboard input.
+**Status: Complete**
 
 ### Deliverables
-- [ ] GDT, IDT, TSS setup
-- [ ] PIC/APIC initialization
-- [ ] PS/2 keyboard driver
-- [ ] Keyboard ring buffer → text input
-- [ ] UART serial I/O (bidirectional)
-- [ ] LLM can regenerate key binding mappings
-
-### Test
-- Type at the console, see characters echoed back
-- User says "remap capslock to ctrl" → LLM generates new keymap → it works
-
-**Estimated effort:** 3-5 days
+- [x] GDT, IDT setup (exception handlers with file:line display)
+- [x] PIC initialization (8259, IRQ 0-15 remapped to 32-47)
+- [x] PS/2 keyboard driver (scancode set 1, modifier tracking, ring buffer)
+- [x] UART serial I/O (bidirectional, COM1 + COM2)
+- [x] VGA text buffer (80x25, scrolling console, cursor tracking)
+- [x] Shell with command dispatch and line editing
 
 ---
 
-## Phase 3: LLM System Service
+## Phase 3: LLM Code Generation
 
-**Goal:** The local LLM runs inside the kernel and generates code.
+**Status: Complete (pragmatic approach)**
+
+Instead of embedding the LLM inside the kernel (original vision), we use a host-side
+daemon that communicates over a second serial port (COM2). This provides the full
+AI-native OS loop without the complexity of running an LLM in-kernel.
 
 ### Deliverables
-- [ ] llama.cpp or candle statically linked into kernel
-- [ ] Model weights loaded at boot (Q4 quantized, 1.5B default)
+- [x] Host-side daemon (TCP server on :12345)
+- [x] Ollama integration (calls `qwen2.5-coder:1.5b` model)
+- [x] Code generation pipeline (prompt → LLM → save → rebuild → signal kernel)
+- [x] Standalone generator CLI (`make generate PROMPT="..."`)
+- [x] Guardrails: code fence stripping, fn/brace removal, build error detection
+- [x] Kernel daemon communication: COM2 send/receive, `BUILD_OK`/`BUILD_FAILED` display
+- [x] Reboot cycle: QEMU restart loop via `isa-debug-exit` device
+- [x] Prompt engineering: byte strings, available API, examples
+
+### Future (Phase 3b — In-Kernel LLM)
+- [ ] llama.cpp or candle linked into kernel
+- [ ] Model weights loaded at boot (Q4 quantized)
 - [ ] Hardware detection engine (CPUID, cache, RAM, SIMD)
-- [ ] User context database (SQLite, embedded)
-- [ ] Code generation pipeline (prompt → LLM → save .rs → cargo check → compile)
-- [ ] Guardrail enforcement (validation, static analysis, retry logic)
-- [ ] CLI shell backed by the LLM
+
+---
+
+## Phase 3a: Userspace Execution
+
+**Status: Not started — NEXT**
+
+**Goal:** Generated code runs as a separate user process with memory protection,
+not compiled into the kernel.
+
+### Deliverables
+- [ ] TSS setup for privilege level switching
+- [ ] GDT with ring 3 segments (user code, user data)
+- [ ] Syscall handler (software interrupt or `syscall`/`sysret`)
+- [ ] Simple ELF loader or raw binary loader
+- [ ] Memory protection: separate page tables, no kernel access
+- [ ] Process management: spawn, exit, yield
+- [ ] `run` command launches generated code as a user process
 
 ### Test
-- Boot → LLM starts → user types "print hello" → LLM generates code → it runs
-- User types "make a todo app" → LLM generates, compiles, runs it
+- Generate a "print hello" program, run it as a user process
+- Generated code cannot access kernel memory (page fault on violation)
+- Multiple user programs can run concurrently
 
-**Estimated effort:** 2-3 weeks
+**Estimated effort:** 1-2 weeks
 
 ---
 
 ## Phase 4: Persistent Storage + Filesystem
 
-**Goal:** User data persists across reboots.
+**Status: Not started**
 
 ### Deliverables
 - [ ] virtio-blk driver
@@ -107,7 +112,7 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ## Phase 5: Generated Applications
 
-**Goal:** Users can build real applications by conversation.
+**Status: Not started**
 
 ### Deliverables
 - [ ] Calendar app with reminders
@@ -128,7 +133,7 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ## Phase 6: Self-Improving OS
 
-**Goal:** The OS profiles itself and regenerates components for better performance.
+**Status: Not started**
 
 ### Deliverables
 - [ ] Performance monitoring (execution cycles, cache misses, alloc patterns)
@@ -148,7 +153,7 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ## Phase 7: Self-Hosted Image
 
-**Goal:** The entire OS ships as a single bootable image, no host tools needed.
+**Status: Not started**
 
 ### Deliverables
 - [ ] Single `.img` file with bootloader + kernel + LLM weights + user data partition
@@ -166,7 +171,7 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ## Phase 8: SMP + Advanced Scheduling (Post-MVP)
 
-**Goal:** Multi-core support with a generated scheduler.
+**Status: Not started**
 
 - [ ] SMP boot (AP startup)
 - [ ] Per-CPU data structures
@@ -175,9 +180,9 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ---
 
-## Phase 9: Networking + Future Cloud (Post-MVP)
+## Phase 9: Networking + Cloud (Post-MVP)
 
-**Goal:** Generated networking stack, cloud provider model.
+**Status: Not started**
 
 - [ ] virtio-net driver
 - [ ] TCP/IP stack (generated or smoltcp)
@@ -188,15 +193,14 @@ qemu-system-x86_64 -drive format=raw,file=target/x86_64-unknown-none/debug/booti
 
 ## Total Estimated Timeline
 
-| Phase | Time | Dependencies |
-|---|---|---|
-| 0 - Skeleton | 1-2 days | Rust toolchain |
-| 1 - Memory | 3-5 days | Phase 0 |
-| 2 - Interrupts/Input | 3-5 days | Phase 0 |
-| 3 - LLM Service | 2-3 weeks | Phase 1, 2 |
-| 4 - Persistent Storage | 1-2 weeks | Phase 1 |
-| 5 - Applications | 3-4 weeks | Phase 3, 4 |
-| 6 - Self-Improving | 3-4 weeks | Phase 5 |
-| 7 - Self-Hosted | 2-3 weeks | Phase 6 |
-
-**Total to Phase 7:** ~12-16 weeks of focused development.
+| Phase | Time | Dependencies | Status |
+|---|---|---|---|
+| 0 - Skeleton | 1-2 days | Rust toolchain | ✅ Complete |
+| 1 - Memory | 3-5 days | Phase 0 | ✅ Complete |
+| 2 - Interrupts/Input | 3-5 days | Phase 0 | ✅ Complete |
+| 3 - LLM Integration | 2-3 weeks | Phase 1, 2 | ✅ Complete (daemon-based) |
+| 3a - Userspace | 1-2 weeks | Phase 2 | ⏳ Next |
+| 4 - Persistent Storage | 1-2 weeks | Phase 1 | ❌ Not started |
+| 5 - Applications | 3-4 weeks | Phase 3a, 4 | ❌ Not started |
+| 6 - Self-Improving | 3-4 weeks | Phase 5 | ❌ Not started |
+| 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |
