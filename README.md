@@ -37,23 +37,35 @@ karnelos/
 
 ## Prerequisites
 
-- **Rust nightly** (installed via rustup)
-- **QEMU** (tested with 11.0+)
-- **`bootimage`** (`cargo install bootimage`)
+```bash
+# Rust nightly
+rustup install nightly
+rustup target add x86_64-unknown-none --toolchain nightly
+rustup component add llvm-tools-preview --toolchain nightly
+
+# Bootable image builder
+cargo install bootimage
+
+# QEMU x86-64 emulator
+brew install qemu
+```
 
 ## Building & Running
 
 ```bash
-# Build and boot the kernel in QEMU
-make run
-
-# Boot without a graphical window (serial console in terminal)
+# Quick test (boots and shows output in terminal)
 make run-nographic
 
-# Boot with 4 CPU cores
-make run-smp
+# Graphical window (macOS native display)
+make run
 
-# Clean build artifacts
+# Debug console (Bochs debug port 0xE9, shows kernel boot even if serial fails)
+make run-debug
+
+# Build only
+make build
+
+# Clean artifacts
 make clean
 ```
 
