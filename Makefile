@@ -5,7 +5,7 @@ KERNEL_IMG = kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.b
 all: build
 
 build:
-	cd kernel && cargo bootimage --target x86_64-unknown-none
+	cd kernel && BOOTLOADER_FEATURES=map_physical_memory cargo bootimage --target x86_64-unknown-none
 
 QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -m 4G -cpu max -nic none
 
