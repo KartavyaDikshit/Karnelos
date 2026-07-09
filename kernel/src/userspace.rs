@@ -15,6 +15,15 @@ pub const USER_STACK_SIZE: u64 = 4096;
 
 static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
+pub struct ExitContext {
+    pub kernel_rsp: u64,
+    pub kernel_ret_rip: u64,
+    pub kernel_cs: u64,
+    pub kernel_ds: u64,
+}
+
+pub static EXIT_CTX: Mutex<Option<ExitContext>> = Mutex::new(None);
+
 struct Selectors {
     kernel_cs: SegmentSelector,
     kernel_ds: SegmentSelector,
@@ -57,8 +66,15 @@ fn user_prog_size() -> usize {
 }
 
 pub fn init() {
+    // Allocate a proper kernel stack frame for ring 3→0 interrupts
+    let stack_idx = crate::memory::FRAME_ALLOCATOR.lock().allocate()
+        .expect("out of memory for kernel stack");
+    let stack_phys = stack_idx as u64 * 4096;
+    let phys_offset = *crate::memory::PHYS_MEM_OFFSET.lock();
+    let stack_top = phys_offset + stack_phys + 4096;
+
     unsafe {
-        TSS.privilege_stack_table[0] = VirtAddr::new(0x0000_0180_0080_0000);
+        TSS.privilege_stack_table[0] = VirtAddr::new(stack_top);
     }
 
     let mut gdt = GlobalDescriptorTable::new();
@@ -154,6 +170,19 @@ pub fn run_user_prog() {
     map_user_pages();
 
     let user_rsp = USER_STACK_BASE + USER_STACK_SIZE;
+
+    // Save exit context once: jump to shell_main_loop with the TSS interrupt stack.
+    // This abandons the current kernel call stack but preserves all global state.
+    if EXIT_CTX.lock().is_none() {
+        extern "C" { fn shell_main_loop(); }
+        let rsp0 = unsafe { TSS.privilege_stack_table[0].as_u64() };
+        *EXIT_CTX.lock() = Some(ExitContext {
+            kernel_rsp: rsp0,
+            kernel_ret_rip: shell_main_loop as *const () as u64,
+            kernel_cs: sel.kernel_cs.0 as u64,
+            kernel_ds: sel.kernel_ds.0 as u64,
+        });
+    }
 
     io::console_write(b"Jumping to ring 3...\r\n");
 

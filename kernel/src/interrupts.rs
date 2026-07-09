@@ -3,7 +3,6 @@ use pic8259::ChainedPics;
 use spin::Mutex;
 use crate::keyboard;
 use crate::io;
-use crate::shell;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = 40;
@@ -121,7 +120,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
 }
 
 // --- Syscall (int 0x80) ---
-
+// r8 = pointer to CPU-pushed frame: [RIP, CS, RFLAGS, RSP, SS]
 core::arch::global_asm!(
     ".globl int_80_stub",
     "int_80_stub:",
@@ -136,6 +135,7 @@ core::arch::global_asm!(
     "  mov rsi, [rsp+8]",   // arg2: arg1 (was rbx)
     "  mov rdx, [rsp+16]",  // arg3: arg2 (was rcx)
     "  mov rcx, [rsp+24]",  // arg4: arg3 (was rdx)
+    "  lea r8, [rsp+48]",   // arg5: pointer to CPU-pushed frame
     "  call syscall_handler",
     "  mov [rsp], rax",     // save return value over saved rax
     "  mov rbx, [rsp+8]",
@@ -148,10 +148,23 @@ core::arch::global_asm!(
 );
 
 #[no_mangle]
-extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, _arg3: u64, _frame: *mut [u64; 5]) -> u64 {
     match num {
         0 => {
             io::console_write(b"User program exited\r\n");
+            // Switch to the saved kernel stack and return to the shell.
+            if let Some(ctx) = crate::userspace::EXIT_CTX.lock().take() {
+                unsafe {
+                    core::arch::asm!(
+                        "mov rsp, {rsp}",
+                        "push {rip}",
+                        "ret",
+                        rsp = in(reg) ctx.kernel_rsp,
+                        rip = in(reg) ctx.kernel_ret_rip,
+                    );
+                }
+            }
+            // fallback: shouldn't reach here
             loop { x86_64::instructions::hlt(); }
         }
         1 => {

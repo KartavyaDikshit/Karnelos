@@ -13,7 +13,7 @@ QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -m 4G -cpu max -nic none -devic
 #   COM1 (0x3F8) -> stdio: user terminal
 #   COM2 (0x2F8) -> TCP localhost:12345: daemon connection
 DAEMON_PORT = 12345
-QEMUFLAGS_SERIAL = -serial stdio -serial tcp:127.0.0.1:$(DAEMON_PORT)
+QEMUFLAGS_SERIAL = -serial mon:stdio -serial tcp:127.0.0.1:$(DAEMON_PORT)
 
 # Graphical QEMU window (macOS native display)
 run: build

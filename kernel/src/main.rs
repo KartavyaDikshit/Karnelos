@@ -14,6 +14,8 @@ mod memory;
 mod shell;
 mod userspace;
 
+pub static mut SHELL: Option<shell::Shell> = None;
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     io::serial_write(b"\r\nKERNEL PANIC\r\n");
@@ -79,26 +81,43 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 
     io::debug_write(b"Starting shell\n");
 
-    let mut shell = shell::Shell::new(b"karnelos> ");
-    shell.print_prompt();
+    let s = shell::Shell::new(b"karnelos> ");
+    unsafe { SHELL = Some(s); }
 
     io::debug_write(b"Ready\n");
 
-    loop {
-        x86_64::instructions::interrupts::enable_and_hlt();
-        while let Some(c) = keyboard::read_char() {
-            shell.handle_char(c);
-        }
-        if io::inb(io::COM1 + 5) & 1 != 0 {
-            let c = io::inb(io::COM1);
-            if c == b'\r' || c == b'\n' || c == 0x08 || c == 0x7F || (c >= 0x20 && c < 0x7F) {
-                shell.handle_char(c);
+    shell_main_loop();
+}
+
+#[no_mangle]
+pub extern "C" fn shell_main_loop() -> ! {
+    // Print prompt once on each entry (handles both first boot and user exit restart)
+    {
+        unsafe {
+            if let Some(ref mut shell) = SHELL {
+                shell.print_prompt();
             }
         }
-        if shell.awaiting_response() {
-            if io::inb(io::COM2 + 5) & 1 != 0 {
-                let c = io::inb(io::COM2);
-                shell.handle_daemon_byte(c);
+    }
+    loop {
+        x86_64::instructions::interrupts::enable_and_hlt();
+        unsafe {
+            if let Some(ref mut shell) = SHELL {
+                while let Some(c) = keyboard::read_char() {
+                    shell.handle_char(c);
+                }
+                if io::inb(io::COM1 + 5) & 1 != 0 {
+                    let c = io::inb(io::COM1);
+                    if c == b'\r' || c == b'\n' || c == 0x08 || c == 0x7F || (c >= 0x20 && c < 0x7F) {
+                        shell.handle_char(c);
+                    }
+                }
+                if shell.awaiting_response() {
+                    if io::inb(io::COM2 + 5) & 1 != 0 {
+                        let c = io::inb(io::COM2);
+                        shell.handle_daemon_byte(c);
+                    }
+                }
             }
         }
     }
