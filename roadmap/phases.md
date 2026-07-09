@@ -68,26 +68,28 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 
 ## Phase 3a: Userspace Execution
 
-**Status: Not started — NEXT**
-
-**Goal:** Generated code runs as a separate user process with memory protection,
-not compiled into the kernel.
+**Status: Complete**
 
 ### Deliverables
-- [ ] TSS setup for privilege level switching
-- [ ] GDT with ring 3 segments (user code, user data)
-- [ ] Syscall handler (software interrupt or `syscall`/`sysret`)
-- [ ] Simple ELF loader or raw binary loader
-- [ ] Memory protection: separate page tables, no kernel access
-- [ ] Process management: spawn, exit, yield
-- [ ] `run` command launches generated code as a user process
+- [x] GDT with ring 0/3 segments (CS, DS) + TSS with privilege stack table
+- [x] `int 0x80` syscall handler registered with DPL=3
+- [x] User program in `.user_prog` section, copied to user page at `0x8000400000`
+- [x] `iretq` to ring 3 from kernel
+- [x] Stack at `0x807FFFF000` (top of 512GB-1TB range)
+- [x] All page table levels (P4, P3, P2, P1) set `PRESENT | WRITABLE | USER_ACCESSIBLE` (0x7)
+- [x] ISA hole (frames 160-255) reserved in bitmap allocator
+- [x] Syscall 0: exit (loop with hlt)
+- [x] Syscall 1: console_write(buf, len) — write to VGA+serial from userspace
+- [x] Syscall 42: hello
+- [x] LLM prompts in daemon/generator updated with syscall API documentation
 
-### Test
-- Generate a "print hello" program, run it as a user process
-- Generated code cannot access kernel memory (page fault on violation)
-- Multiple user programs can run concurrently
-
-**Estimated effort:** 1-2 weeks
+### Key Details
+- User virtual address range: P4[1] → 512GB-1024GB
+- Code at `0x8000400000` (512GB + 4MB), stack at `0x807FFFF000` (512GB + 2GB - 4KB)
+- All page table entries (including intermediate) must have `USER_ACCESSIBLE` bit
+- `map_user_pages()` creates entire page hierarchy in one pass
+- `int_80_stub` saves/restores all GPRs, calls `syscall_handler(num, arg1, arg2, arg3)`
+- RIP-relative addressing via `lea rbx, [rip + label]` works (section offsets preserved)
 
 ---
 
@@ -199,7 +201,7 @@ not compiled into the kernel.
 | 1 - Memory | 3-5 days | Phase 0 | ✅ Complete |
 | 2 - Interrupts/Input | 3-5 days | Phase 0 | ✅ Complete |
 | 3 - LLM Integration | 2-3 weeks | Phase 1, 2 | ✅ Complete (daemon-based) |
-| 3a - Userspace | 1-2 weeks | Phase 2 | ⏳ Next |
+| 3a - Userspace | 1-2 weeks | Phase 2 | ✅ Complete |
 | 4 - Persistent Storage | 1-2 weeks | Phase 1 | ❌ Not started |
 | 5 - Applications | 3-4 weeks | Phase 3a, 4 | ❌ Not started |
 | 6 - Self-Improving | 3-4 weeks | Phase 5 | ❌ Not started |

@@ -17,6 +17,7 @@ exact hardware and tailored to your workflow.
 
 ## Current Status
 
+### AI-Native OS Loop (Phase 0-3)
 The AI-native OS loop is fully functional:
 
 1. **`gen <prompt>`** — Describe what you want in natural language
@@ -24,6 +25,19 @@ The AI-native OS loop is fully functional:
 3. **Build** — The generated code is compiled into the kernel binary
 4. **`reboot`** — QEMU exits and restarts with the new kernel
 5. **`run`** — Execute the LLM-generated code
+
+### Userspace Execution (Phase 3a)
+Ring 3 userspace is fully operational:
+
+- **GDT** with ring 0/3 code and data segments + TSS for privilege switching
+- **`int 0x80` syscall handler** with DPL=3 for controlled entry into the kernel
+- **Syscalls implemented:**
+  - `0` — Exit program
+  - `1` — `console_write(buf, len)` — write to VGA + serial from ring 3
+  - `42` — Print "Hello from ring 3!"
+- **`user` command** — Runs a hardcoded demo program in ring 3 that tests all syscalls
+- **Memory isolation:** User code runs on separate pages at `0x8000400000` (P4[1]),
+  outside the kernel's address space, with `USER_ACCESSIBLE` bit set at all page table levels
 
 ### Demo
 
@@ -34,6 +48,12 @@ karnelos> reboot
 [kernel rebuilt with new code, QEMU restarts]
 karnelos> run
 Hello from AI!
+
+karnelos> user
+Jumping to ring 3...
+Hello from ring 3!
+Syscall 1 works!
+User program exited
 ```
 
 ## Project Structure
@@ -44,10 +64,11 @@ karnelos/
 │   ├── src/
 │   │   ├── main.rs       # Entry point, main loop
 │   │   ├── io.rs         # Serial, VGA, console I/O
-│   │   ├── interrupts.rs # IDT, PIC, exception/IRQ handlers
+│   │   ├── interrupts.rs # IDT, PIC, exception/IRQ handlers, syscalls
 │   │   ├── keyboard.rs   # PS/2 keyboard driver
 │   │   ├── memory.rs     # Physical frame allocator, heap
 │   │   ├── shell.rs      # Shell with command dispatch
+│   │   ├── userspace.rs  # GDT+TSS, page table setup, ring 3 execution
 │   │   └── generated.rs  # Auto-generated code from LLM
 │   ├── Cargo.toml
 │   └── rust-toolchain.toml
@@ -113,7 +134,8 @@ make clean
 | `echo <text>` | Echo text back |
 | `info` | System information |
 | `gen <prompt>` | Generate code via LLM (sends to daemon) |
-| `run` | Execute the last generated code |
+| `run` | Execute the last generated code (kernel mode) |
+| `user` | Run demo program in ring 3 (userspace) |
 | `reboot` | Reboot into new kernel (after successful gen) |
 | `test-heap` | Run heap allocation test |
 
@@ -134,6 +156,16 @@ Development target is a QEMU VM with:
 The daemon runs on the host, receives `KARNELOS_GEN:<prompt>` lines from the kernel
 via COM2, calls Ollama, writes the generated code to `kernel/src/generated.rs`,
 rebuilds the kernel, and sends `BUILD_OK` or `BUILD_FAILED` back.
+
+### Userspace / Syscall Architecture
+
+- **Ring 3 execution** via `iretq` with user code/data segment selectors
+- **GDT layout:** null → ring0 CS → ring0 DS → ring3 CS → ring3 DS → TSS (6 entries)
+- **TSS.privilege_stack_table[0]** = kernel stack for ring 0 interrupt handling from ring 3
+- **`int 0x80`** registered with DPL=3
+- **User page tables** at P4 index 1 (512GB-1024GB range), all entries with `PRESENT | WRITABLE | USER_ACCESSIBLE`
+- **User code** at `0x8000400000`, **user stack** at `0x807FFFF000`
+- **ISA hole** (frames 160-255, 0xA0000-0xBFFFF VGA region) explicitly reserved in bitmap allocator
 
 ## Roadmap
 

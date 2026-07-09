@@ -3,6 +3,7 @@ use pic8259::ChainedPics;
 use spin::Mutex;
 use crate::keyboard;
 use crate::io;
+use crate::shell;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = 40;
@@ -117,4 +118,76 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     let scancode = unsafe { x86_64::instructions::port::Port::new(0x60).read() };
     keyboard::handle_scancode(scancode);
     unsafe { PICS.lock().notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8()); }
+}
+
+// --- Syscall (int 0x80) ---
+
+core::arch::global_asm!(
+    ".globl int_80_stub",
+    "int_80_stub:",
+    "  sub rsp, 48",
+    "  mov [rsp], rax",
+    "  mov [rsp+8], rbx",
+    "  mov [rsp+16], rcx",
+    "  mov [rsp+24], rdx",
+    "  mov [rsp+32], rsi",
+    "  mov [rsp+40], rdi",
+    "  mov rdi, [rsp]",     // arg1: syscall number (was rax)
+    "  mov rsi, [rsp+8]",   // arg2: arg1 (was rbx)
+    "  mov rdx, [rsp+16]",  // arg3: arg2 (was rcx)
+    "  mov rcx, [rsp+24]",  // arg4: arg3 (was rdx)
+    "  call syscall_handler",
+    "  mov [rsp], rax",     // save return value over saved rax
+    "  mov rbx, [rsp+8]",
+    "  mov rcx, [rsp+16]",
+    "  mov rdx, [rsp+24]",
+    "  mov rsi, [rsp+32]",
+    "  mov rdi, [rsp+40]",
+    "  add rsp, 48",
+    "  iretq",
+);
+
+#[no_mangle]
+extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+    match num {
+        0 => {
+            io::console_write(b"User program exited\r\n");
+            loop { x86_64::instructions::hlt(); }
+        }
+        1 => {
+            // console_write(buf_addr, len)
+            let buf = arg1 as *const u8;
+            let len = arg2 as usize;
+            if len > 0 && len <= 4096 {
+                let slice = unsafe { core::slice::from_raw_parts(buf, len) };
+                io::console_write(slice);
+            }
+            0
+        }
+        42 => {
+            io::console_write(b"Hello from ring 3!\r\n");
+            0
+        }
+        _ => {
+            io::console_write(b"Unknown syscall: ");
+            let mut buf = [0u8; 20];
+            let mut i = 20;
+            let mut n = num;
+            while n > 0 { i -= 1; buf[i] = b'0' + (n % 10) as u8; n /= 10; }
+            if i == 20 { io::console_putc(b'0'); } else { io::console_write(&buf[i..]); }
+            io::console_write(b"\r\n");
+            0
+        }
+    }
+}
+
+pub fn register_int0x80() {
+    unsafe {
+        let idt = &mut *core::ptr::addr_of_mut!(IDT);
+        extern "C" { fn int_80_stub(); }
+        let addr = x86_64::VirtAddr::new(int_80_stub as usize as u64);
+        idt[0x80].set_handler_addr(addr)
+            .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
+        io::console_write(b"int 0x80 registered with DPL=3\r\n");
+    }
 }

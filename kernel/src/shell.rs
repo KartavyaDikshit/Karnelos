@@ -92,6 +92,7 @@ impl Shell {
             b"info" => cmd_info(),
             b"gen" | b"generate" => self.cmd_gen(args),
             b"run" => cmd_run(),
+            b"user" => cmd_user(),
             b"reboot" => cmd_reboot(),
             b"test-heap" => cmd_test_heap(),
             _ => {
@@ -144,6 +145,7 @@ fn cmd_help() {
     writeln(b"  info        - System information");
     writeln(b"  gen|generate <prompt> - Generate code via LLM");
     writeln(b"  run         - Run the last generated code");
+    writeln(b"  user        - Test ring 3 user execution");
     writeln(b"  reboot      - Reboot the system (loads new kernel after gen)");
     writeln(b"  test-heap   - Run heap allocation test");
 }
@@ -193,6 +195,10 @@ fn cmd_test_heap() {
 
 fn cmd_run() {
     crate::generated::generated_main();
+}
+
+fn cmd_user() {
+    crate::userspace::run_user_prog();
 }
 
 fn cmd_reboot() {

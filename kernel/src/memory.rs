@@ -58,6 +58,13 @@ impl FrameAllocator {
             }
         }
         self.total_frames = max_frame.min(MAX_FRAMES);
+        // Reserve the ISA hole (640KB–1MB, frames 160–255) which is often
+        // not covered by E820 entries but is occupied by VGA/BIOS ROM.
+        for f in 160..256 {
+            if f < self.total_frames && !self.is_used(f) {
+                self.mark_used(f);
+            }
+        }
         self.used_frames = 0;
         for i in 0..self.total_frames {
             if self.is_used(i) { self.used_frames += 1; }

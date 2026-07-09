@@ -12,6 +12,7 @@ mod keyboard;
 mod interrupts;
 mod memory;
 mod shell;
+mod userspace;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -70,6 +71,8 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     memory::init(boot_info);
     io::debug_write(b"Initializing heap\n");
     memory::init_heap();
+    io::debug_write(b"Initializing userspace\n");
+    userspace::init();
 
     io::debug_write(b"Initializing keyboard\n");
     keyboard::init();

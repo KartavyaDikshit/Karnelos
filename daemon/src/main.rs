@@ -62,7 +62,15 @@ fn call_llm(prompt: &str) -> Result<String> {
 fn generate_and_build(prompt: &str) -> Result<String> {
     let system = concat!(
         "You generate Rust function BODY for Karnelos OS kernel (bare-metal x86-64, no_std).\n",
-        "Available: io::serial_write(b\"...\\r\\n\"), io::console_write(b\"...\\r\\n\"), io::serial_putc(c), io::console_putc(c)\n",
+        "Kernel API (available in generated_main):\n",
+        "  io::console_write(b\"...\")  - write to both serial and VGA\n",
+        "  io::console_putc(c)         - write single char\n",
+        "  io::serial_write(b\"...\")   - write to COM1 serial\n",
+        "  io::serial_putc(c)          - write single char to COM1\n",
+        "Syscall API (for future userspace programs via int 0x80):\n",
+        "  mov eax, 0; int 0x80   - exit program\n",
+        "  mov eax, 42; int 0x80   - print \"Hello from ring 3!\"\n",
+        "  mov eax, 1; mov ebx, <addr>; mov ecx, <len>; int 0x80  - console_write\n",
         "RULES:\n",
         "- Output ONLY the function body statements, one per line\n",
         "- No markdown, no code fences, no fn declaration, no closing brace\n",
