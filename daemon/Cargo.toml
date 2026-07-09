@@ -1,0 +1,11 @@
+[package]
+name = "karnelos-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "Host-side daemon that listens for generator requests from Karnelos OS kernel via serial"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["blocking", "json"] }

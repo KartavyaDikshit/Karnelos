@@ -124,7 +124,7 @@ unsafe impl FrameAllocatorTrait<Size4KiB> for FrameAllocator {
 
 pub static FRAME_ALLOCATOR: spin::Mutex<FrameAllocator> = spin::Mutex::new(FrameAllocator::new());
 
-static PHYS_MEM_OFFSET: spin::Mutex<u64> = spin::Mutex::new(0);
+pub static PHYS_MEM_OFFSET: spin::Mutex<u64> = spin::Mutex::new(0);
 
 static HEAP_PHYS_START: spin::Mutex<u64> = spin::Mutex::new(0);
 
