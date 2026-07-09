@@ -1,0 +1,22 @@
+# Rust build artifacts
+target/
+
+# Bootimage output
+*.bin
+
+# OS files
+*.img
+*.iso
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
