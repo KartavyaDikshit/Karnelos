@@ -3,6 +3,8 @@
 
 use core::panic::PanicInfo;
 
+mod generated;
+
 const COM1: u16 = 0x3F8;
 const DEBUG_PORT: u16 = 0xE9;
 
