@@ -13,6 +13,8 @@ mod interrupts;
 mod memory;
 mod shell;
 mod userspace;
+mod ata;
+mod filesystem;
 
 pub static mut SHELL: Option<shell::Shell> = None;
 
@@ -73,6 +75,8 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     memory::init(boot_info);
     io::debug_write(b"Initializing heap\n");
     memory::init_heap();
+    io::debug_write(b"Initializing storage (ATA/IDE)\n");
+    ata::init();
     io::debug_write(b"Initializing userspace\n");
     userspace::init();
 

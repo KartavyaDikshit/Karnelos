@@ -78,37 +78,51 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 - [x] Stack at `0x807FFFF000` (top of 512GB-1TB range)
 - [x] All page table levels (P4, P3, P2, P1) set `PRESENT | WRITABLE | USER_ACCESSIBLE` (0x7)
 - [x] ISA hole (frames 160-255) reserved in bitmap allocator
-- [x] Syscall 0: exit (loop with hlt)
+- [x] Syscall 0: exit (returns to shell via TSS stack switch)
 - [x] Syscall 1: console_write(buf, len) — write to VGA+serial from userspace
 - [x] Syscall 42: hello
 - [x] LLM prompts in daemon/generator updated with syscall API documentation
+- [x] Return-to-shell after user exit (no reboot needed)
+- [x] TSS RSP0 uses properly allocated frame (not hardcoded address)
 
 ### Key Details
 - User virtual address range: P4[1] → 512GB-1024GB
 - Code at `0x8000400000` (512GB + 4MB), stack at `0x807FFFF000` (512GB + 2GB - 4KB)
 - All page table entries (including intermediate) must have `USER_ACCESSIBLE` bit
 - `map_user_pages()` creates entire page hierarchy in one pass
-- `int_80_stub` saves/restores all GPRs, calls `syscall_handler(num, arg1, arg2, arg3)`
+- `int_80_stub` saves/restores all GPRs, calls `syscall_handler(num, arg1, arg2, arg3, frame)`
 - RIP-relative addressing via `lea rbx, [rip + label]` works (section offsets preserved)
+- Exit handler switches to TSS RSP0 stack and jumps to `shell_main_loop()`
+- Shell is a `static mut` (was local) to survive stack abandonment
 
 ---
 
 ## Phase 4: Persistent Storage + Filesystem
 
-**Status: Not started**
+**Status: In progress (block driver + flat FS done; generated formats pending)**
 
 ### Deliverables
-- [ ] virtio-blk driver
-- [ ] Block device abstraction
-- [ ] Filesystem (tmpfs at boot, persistent on virtio-blk)
+- [x] Block device driver (ATA PIO over IDE, secondary channel master)
+- [x] Block device abstraction (`read_block` / `write_block` / `is_present` / `capacity_sectors`)
+- [x] Flat filesystem (superblock + dir + block bitmap + data sectors)
+- [x] `storage` shell command: format / write / read / ls / info
+- [x] Persistence across reboot (verified: write → reboot → read)
 - [ ] Generated storage formats (LLM can create custom binary formats)
 - [ ] Directory structure generated from user context
 
-### Test
-- Create a file, reboot, file is still there
-- User says "save my calendar data in /home/apps/calendar" → LLM creates storage
+### Notes
+- Planned backend was virtio-blk, but QEMU 11 dropped the legacy virtio
+  queue interface (config-space reads still worked, yet the device never advanced
+  its `used` ring). ATA PIO gives the same block-level API reliably.
+- virtio-blk code was prototyped (`pci.rs` + `virtio_blk.rs`) and taught the
+  needed fixes (NEXT-chain flags, 2 contiguous vring pages) for a future
+  modern-virtio revsit.
 
-**Estimated effort:** 1-2 weeks
+### Test
+- `storage write note Hello` → `reboot` → `storage read note` → "Hello" ✓
+- User says "save my calendar data in /home/apps/calendar" → LLM creates storage (Phase 5)
+
+**Estimated effort:** ~done for core; generated formats in Phase 5
 
 ---
 
@@ -202,7 +216,7 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 | 2 - Interrupts/Input | 3-5 days | Phase 0 | ✅ Complete |
 | 3 - LLM Integration | 2-3 weeks | Phase 1, 2 | ✅ Complete (daemon-based) |
 | 3a - Userspace | 1-2 weeks | Phase 2 | ✅ Complete |
-| 4 - Persistent Storage | 1-2 weeks | Phase 1 | ❌ Not started |
+| 4 - Persistent Storage | 1-2 weeks | Phase 1 | 🟡 In progress (core done) |
 | 5 - Applications | 3-4 weeks | Phase 3a, 4 | ❌ Not started |
 | 6 - Self-Improving | 3-4 weeks | Phase 5 | ❌ Not started |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |

@@ -95,6 +95,7 @@ impl Shell {
             b"user" => cmd_user(),
             b"reboot" => cmd_reboot(),
             b"test-heap" => cmd_test_heap(),
+            b"storage" => cmd_storage(args),
             _ => {
                 io::console_write(b"Unknown: '");
                 io::console_write(cmd);
@@ -148,6 +149,7 @@ fn cmd_help() {
     writeln(b"  user        - Test ring 3 user execution");
     writeln(b"  reboot      - Reboot the system (loads new kernel after gen)");
     writeln(b"  test-heap   - Run heap allocation test");
+    writeln(b"  storage <cmd> - Persistent storage (format|ls|write|read|info)");
 }
 
 fn cmd_memory() {
@@ -204,4 +206,49 @@ fn cmd_user() {
 fn cmd_reboot() {
     writeln(b"Rebooting...");
     io::reboot();
+}
+
+fn cmd_storage(args: &[u8]) {
+    // Parse subcommand + argument
+    let mut it = args.splitn(2, |&b| b == b' ' || b == b'\t');
+    let sub = it.next().unwrap_or(&[][..]).trim_ascii();
+    let rest = it.next().unwrap_or(&[][..]).trim_ascii();
+
+    match sub {
+        b"format" => crate::filesystem::format(),
+        b"ls" | b"list" => crate::filesystem::list(),
+        b"info" => crate::filesystem::info(),
+        b"write" => {
+            // rest = "<name> <text...>"
+            let sp = rest.iter().position(|&b| b == b' ' || b == b'\t');
+            match sp {
+                Some(i) => {
+                    let name = rest[..i].trim_ascii();
+                    let text = rest[i..].trim_ascii();
+                    if name.is_empty() {
+                        writeln(b"Usage: storage write <name> <text>");
+                    } else {
+                        crate::filesystem::write_file(name, text);
+                    }
+                }
+                None => writeln(b"Usage: storage write <name> <text>"),
+            }
+        }
+        b"read" => {
+            if rest.is_empty() {
+                writeln(b"Usage: storage read <name>");
+            } else {
+                let mut buf = [0u8; 4096];
+                let n = crate::filesystem::read_file(rest, &mut buf);
+                if n == 0 {
+                    writeln(b"storage: file not found");
+                } else {
+                    io::console_write(b"\r\n");
+                    io::console_write(&buf[..n]);
+                    io::console_write(b"\r\n");
+                }
+            }
+        }
+        _ => writeln(b"Usage: storage <format|ls|write|read|info>"),
+    }
 }

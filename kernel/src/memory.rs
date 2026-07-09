@@ -107,6 +107,40 @@ impl FrameAllocator {
         }
     }
 
+    #[allow(dead_code)]
+    pub fn deallocate(&mut self, frame: usize) {
+        if self.is_used(frame) {
+            self.bitmap[frame / 8] &= !(1 << (frame % 8));
+            self.used_frames -= 1;
+        }
+    }
+
+    pub fn allocate_contiguous(&mut self, count: usize) -> Option<usize> {
+        let start = self.next_hint;
+        let mut found = 0usize;
+        let mut first = 0usize;
+        for i in 0..self.total_frames {
+            let idx = (start + i) % self.total_frames;
+            if !self.is_used(idx) {
+                if found == 0 {
+                    first = idx;
+                }
+                found += 1;
+                if found == count {
+                    for j in first..first + count {
+                        self.mark_used(j);
+                    }
+                    self.used_frames += count;
+                    self.next_hint = (first + count) % self.total_frames;
+                    return Some(first);
+                }
+            } else {
+                found = 0;
+            }
+        }
+        None
+    }
+
     pub fn print_info(&self, phys_mem_offset: u64) {
         io::console_write(b"\r\n=== Memory Info ===\r\n");
         io::console_write(b"Physical memory offset: "); hex(phys_mem_offset); io::console_write(b"\r\n");
@@ -127,6 +161,20 @@ unsafe impl FrameAllocatorTrait<Size4KiB> for FrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
         self.allocate().map(|n| PhysFrame::containing_address(PhysAddr::new(n as u64 * PAGE_SIZE)))
     }
+}
+
+#[allow(dead_code)]
+pub fn deallocate_frame(frame: PhysFrame<Size4KiB>) {
+    let n = (frame.start_address().as_u64() / PAGE_SIZE) as usize;
+    FRAME_ALLOCATOR.lock().deallocate(n);
+}
+
+#[allow(dead_code)]
+pub fn allocate_contiguous_frames(count: usize) -> Option<PhysFrame<Size4KiB>> {
+    FRAME_ALLOCATOR
+        .lock()
+        .allocate_contiguous(count)
+        .map(|n| PhysFrame::containing_address(PhysAddr::new(n as u64 * PAGE_SIZE)))
 }
 
 pub static FRAME_ALLOCATOR: spin::Mutex<FrameAllocator> = spin::Mutex::new(FrameAllocator::new());

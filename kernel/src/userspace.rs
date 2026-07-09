@@ -18,15 +18,11 @@ static mut TSS: TaskStateSegment = TaskStateSegment::new();
 pub struct ExitContext {
     pub kernel_rsp: u64,
     pub kernel_ret_rip: u64,
-    pub kernel_cs: u64,
-    pub kernel_ds: u64,
 }
 
 pub static EXIT_CTX: Mutex<Option<ExitContext>> = Mutex::new(None);
 
 struct Selectors {
-    kernel_cs: SegmentSelector,
-    kernel_ds: SegmentSelector,
     user_cs: SegmentSelector,
     user_ds: SegmentSelector,
 }
@@ -93,7 +89,7 @@ pub fn init() {
         DS::set_reg(kernel_ds);
         ES::set_reg(kernel_ds);
         load_tss(tss_sel);
-        *GDT_SEL.lock() = Some(Selectors { kernel_cs, kernel_ds, user_cs, user_ds });
+        *GDT_SEL.lock() = Some(Selectors { user_cs, user_ds });
     }
 
     crate::interrupts::register_int0x80();
@@ -179,8 +175,6 @@ pub fn run_user_prog() {
         *EXIT_CTX.lock() = Some(ExitContext {
             kernel_rsp: rsp0,
             kernel_ret_rip: shell_main_loop as *const () as u64,
-            kernel_cs: sel.kernel_cs.0 as u64,
-            kernel_ds: sel.kernel_ds.0 as u64,
         });
     }
 

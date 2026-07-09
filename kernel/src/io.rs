@@ -13,6 +13,16 @@ pub fn inb(port: u16) -> u8 {
     val
 }
 
+pub fn outw(port: u16, val: u16) {
+    unsafe { core::arch::asm!("out dx, ax", in("dx") port, in("ax") val); }
+}
+
+pub fn inw(port: u16) -> u16 {
+    let val: u16;
+    unsafe { core::arch::asm!("in ax, dx", out("ax") val, in("dx") port); }
+    val
+}
+
 pub fn reboot() -> ! {
     // Exit QEMU via isa-debug-exit device (port 0xF4, needs -device flag)
     unsafe { core::arch::asm!("mov dx, 0xF4; mov al, 0x31; out dx, al", options(nostack, nomem)); }

@@ -32,12 +32,33 @@ Ring 3 userspace is fully operational:
 - **GDT** with ring 0/3 code and data segments + TSS for privilege switching
 - **`int 0x80` syscall handler** with DPL=3 for controlled entry into the kernel
 - **Syscalls implemented:**
-  - `0` — Exit program
+  - `0` — Exit program (returns to the shell prompt, no reboot needed)
   - `1` — `console_write(buf, len)` — write to VGA + serial from ring 3
   - `42` — Print "Hello from ring 3!"
 - **`user` command** — Runs a hardcoded demo program in ring 3 that tests all syscalls
 - **Memory isolation:** User code runs on separate pages at `0x8000400000` (P4[1]),
   outside the kernel's address space, with `USER_ACCESSIBLE` bit set at all page table levels
+
+### Persistent Storage (Phase 4)
+A block device driver and flat filesystem provide persistence across reboots:
+
+- **ATA PIO block driver** (`ata.rs`) over the IDE controller (secondary channel, master).
+  QEMU exposes the disk via `-drive if=ide,index=2,file=storage.img`.
+- **Block device abstraction:** `read_block(sector, buf)` / `write_block(sector, buf)`
+  plus `is_present()` / `capacity_sectors()`.
+- **Flat filesystem** (`filesystem.rs`): superblock + directory (64 entries) + block bitmap
+  + data sectors. Files persist across reboots.
+- **`storage` shell command:**
+  - `storage format` — Initialize the disk
+  - `storage write <name> <text>` — Write a file
+  - `storage read <name>` — Read a file
+  - `storage ls` — List files
+  - `storage info` — Show disk info
+
+> **Note on block backend:** The plan called for virtio-blk, but QEMU 11 dropped the
+> legacy virtio queue interface (config-space reads still worked, but the device never
+> advanced its `used` ring). ATA PIO is reliable across QEMU versions and provides the
+> same block-level API; virtio-blk can be revisited later for performance.
 
 ### Demo
 
@@ -54,6 +75,16 @@ Jumping to ring 3...
 Hello from ring 3!
 Syscall 1 works!
 User program exited
+
+karnelos> storage format
+storage: disk formatted (131072 sectors, 131031 free for data)
+karnelos> storage write note Hello from persistent storage
+storage: wrote 'note' (29 bytes)
+karnelos> storage read note
+Hello from persistent storage
+karnelos> storage ls
+Files on persistent storage:
+  note  (29 bytes)
 ```
 
 ## Project Structure
