@@ -60,6 +60,25 @@ A block device driver and flat filesystem provide persistence across reboots:
 > advanced its `used` ring). ATA PIO is reliable across QEMU versions and provides the
 > same block-level API; virtio-blk can be revisited later for performance.
 
+### On-Demand Apps (Phase 5 — in progress)
+
+The LLM generates **Rust ring-3 ELF apps** that the running kernel streams in over
+COM2, loads, and runs as an isolated process — **no kernel recompile, no reboot**.
+Each app gets its own page tables (kernel upper-half cloned + user lower-half) and
+talks to the kernel via a stable `int 0x80` syscall ABI (`rax`=num, args
+`rdi,rsi,rdx,r10,r8,r9`, return `rax`).
+
+```
+karnelos> gen print the numbers 1 through 5
+[Sending to daemon → builds userspace ELF → streams over COM2]
+1
+2
+3
+4
+5
+[app exited — back to shell, no reboot]
+```
+
 ### Demo
 
 ```
@@ -164,10 +183,10 @@ make clean
 | `clear` | Clear screen |
 | `echo <text>` | Echo text back |
 | `info` | System information |
-| `gen <prompt>` | Generate code via LLM (sends to daemon) |
-| `run` | Execute the last generated code (kernel mode) |
-| `user` | Run demo program in ring 3 (userspace) |
-| `reboot` | Reboot into new kernel (after successful gen) |
+| `gen <prompt>` | Generate an app via LLM, stream it in, and run it (no reboot) |
+| `run` | Re-run the last loaded ELF app |
+| `user` | Run built-in ring-3 demo program |
+| `reboot` | Reboot the system |
 | `test-heap` | Run heap allocation test |
 
 ## Hardware Profile

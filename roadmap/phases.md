@@ -99,7 +99,7 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 
 ## Phase 4: Persistent Storage + Filesystem
 
-**Status: In progress (block driver + flat FS done; generated formats pending)**
+**Status: Complete (core)**
 
 ### Deliverables
 - [x] Block device driver (ATA PIO over IDE, secondary channel master)
@@ -107,8 +107,7 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 - [x] Flat filesystem (superblock + dir + block bitmap + data sectors)
 - [x] `storage` shell command: format / write / read / ls / info
 - [x] Persistence across reboot (verified: write → reboot → read)
-- [ ] Generated storage formats (LLM can create custom binary formats)
-- [ ] Directory structure generated from user context
+- [x] Storage syscalls for userspace (read/write by name) — see Phase 5
 
 ### Notes
 - Planned backend was virtio-blk, but QEMU 11 dropped the legacy virtio
@@ -116,13 +115,72 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
   its `used` ring). ATA PIO gives the same block-level API reliably.
 - virtio-blk code was prototyped (`pci.rs` + `virtio_blk.rs`) and taught the
   needed fixes (NEXT-chain flags, 2 contiguous vring pages) for a future
-  modern-virtio revsit.
+  modern-virtio revisit.
 
 ### Test
 - `storage write note Hello` → `reboot` → `storage read note` → "Hello" ✓
-- User says "save my calendar data in /home/apps/calendar" → LLM creates storage (Phase 5)
 
-**Estimated effort:** ~done for core; generated formats in Phase 5
+**Estimated effort:** done
+
+---
+
+## Phase 5: Generated Applications (ELF loader + process model)
+
+**Status: In progress**
+
+The "real OS that writes apps" experience. Instead of recompiling the kernel and
+rebooting for every generated snippet, the LLM (host daemon for now; on-device in
+Phase 7) generates a **Rust ring-3 ELF app** that the running kernel streams in
+over COM2, loads on demand, and executes as an isolated process — no reboot, no
+kernel rebuild.
+
+### Architecture
+```
+host:  prompt ─► daemon ─build(userspace target)─► ELF ─COM2(TCP)─► kernel
+                                                        │
+        kernel: receive → ELF parse → map P4 → iretq ring3 → run → exit → shell
+```
+- Per-process **page tables**: new P4 clones the kernel's upper-half entries
+  (256..512) and adds user code/stack/heap in the lower half (code `0x400000`,
+  stack `0x7FFF_F000`, heap reserved region). This isolates apps from the kernel
+  and from each other, replacing the old "map into the kernel's P4" approach.
+- Stable **syscall ABI**: `rax`=num, args `rdi,rsi,rdx,r10,r8,r9`, return `rax`,
+  dispatched through `int 0x80` (DPL=3).
+- Single process at a time (multitasking deferred to Phase 8).
+
+### Deliverables / Milestones
+- [ ] **M1 — Userspace toolchain + runtime**
+  - [ ] `userspace/karnelos-user.json` target spec (PIE, `disable-redzone`,
+        `panic=abort`, based on `x86_64-unknown-none`)
+  - [ ] `linker.ld` + `_start` (zero BSS, 16B-aligned stack, call `main`, exit)
+  - [ ] `rt/syscall.rs` (`int 0x80` wrapper + `syscall!` macro), `rt/panic.rs`,
+        optional bump `GlobalAllocator`
+  - [ ] `app/src/main.rs` template overwritten by the daemon
+  - [ ] `make userspace` → `cargo build -Z build-std=core,alloc --target ...`
+  - [ ] Verify: `readelf -h` PIE, `readelf -r` **no relocations**
+- [ ] **M2 — ELF64 loader** (`kernel/src/loader.rs`): parse hdr + program
+      headers, map `PT_LOAD` segments, zero BSS, validate entry, assert no relocs
+- [ ] **M3 — Process model** (`kernel/src/process.rs`, replaces `userspace.rs`
+      demo): `Process` struct, per-process P4 (clone kernel half), dedicated
+      kernel stack in `TSS.privilege_stack_table[0]`, `run_process` via `iretq`,
+      exit syscall frees frames + restores kernel `CR3` + returns to shell
+- [ ] **M4 — Syscall ABI expansion** (`interrupts.rs`): `1 write`, `2 read`,
+      `3 exit`, `4 storage_read`, `5 storage_write`, `6 getchar` (keep `0/1/42`)
+- [ ] **M5 — COM2 streaming delivery**: daemon writes `app/src/main.rs`, builds
+      ELF, sends `KARNELOS_ELF:<u32 len>\n<bytes>` over TCP/COM2; kernel shell
+      `gen <prompt>` enters an ELF receive state machine → load → run. Add `run`
+      to re-run last ELF. No reboot.
+- [ ] **M6 — Demo apps + docs**: generate a working demo via `gen`; optional
+      `storage write <app> <elf>` + `run <name>` for persistence; update README
+      + this roadmap
+
+### Test
+- `make run-daemon` → OS: `gen print the numbers 1 through 5` → app runs
+  **without reboot**, exits back to shell.
+- `storage format/write/read/ls` still works via M4 syscalls.
+- `user` command still demonstrates ring-3 execution.
+
+**Estimated effort:** 2-3 weeks (M1+M2+M3 are the heavy lifting)
 
 ---
 
