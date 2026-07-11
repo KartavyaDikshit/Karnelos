@@ -200,7 +200,7 @@ fn cmd_run() {
 }
 
 fn cmd_user() {
-    crate::userspace::run_user_prog();
+    crate::process::run_user_demo();
 }
 
 fn cmd_reboot() {

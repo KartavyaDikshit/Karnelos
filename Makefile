@@ -1,4 +1,4 @@
-.PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon generate clean daemon-build
+.PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon generate clean daemon-build userspace userspace-test userspace-clean
 
 KERNEL_IMG = kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin
 STORAGE_IMG = storage.img
@@ -13,7 +13,7 @@ $(STORAGE_IMG):
 	fi
 
 build:
-	cd kernel && BOOTLOADER_FEATURES=map_physical_memory cargo bootimage --target x86_64-unknown-none
+	cd tools/mkimage && cargo +nightly-2025-07-08 run
 
 QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -drive file=$(STORAGE_IMG),format=raw,if=ide,index=2 -m 4G -cpu max -nic none -device isa-debug-exit,iobase=0xf4,iosize=0x04
 
@@ -60,6 +60,21 @@ daemon-build:
 
 generate:
 	cd generator && cargo run -- "$(PROMPT)"
+
+# Build a userspace ring-3 app (PIE ELF) for the kernel loader.
+USERSRC = userspace
+USERSRC_BIN = $(USERSRC)/target/karnelos-user/debug/karnelos-user
+
+userspace:
+	cd $(USERSRC) && cargo build -Z build-std=core,alloc --target karnelos-user.json
+
+# Inspect the produced ELF (should be PIE with no relocations).
+userspace-test: userspace
+	@echo "--- ELF header ---"; readelf -h $(USERSRC_BIN) | grep -E "Type|Entry"
+	@echo "--- Relocations (should be none) ---"; readelf -r $(USERSRC_BIN) | tail -3
+
+userspace-clean:
+	cd $(USERSRC) && cargo clean
 
 clean:
 	cd kernel && cargo clean

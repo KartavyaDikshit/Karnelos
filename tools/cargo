@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Cargo wrapper: rewrites the `-Z json-target-spec` (dash) flag that older
+# bootimage/bootloader 0.9 passes into the underscore form that modern cargo
+# requires. Without this, `cargo bootimage` fails with
+# "unknown -Z flag specified: json-target-spec".
+# All other arguments (and the `-Z build-std` dash form, which modern cargo
+# still accepts) pass through untouched.
+
+real="${HOME}/.cargo/bin/cargo"
+out=()
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-Z" ]; then
+    a="${a/json-target-spec/json_target_spec}"
+    a="${a/binary-dep-depinfo/binary_dep_depinfo}"
+  fi
+  a="${a/json-target-spec/json_target_spec}"
+  a="${a/binary-dep-depinfo/binary_dep_depinfo}"
+  out+=("$a")
+  prev="$a"
+done
+exec "$real" "${out[@]}"

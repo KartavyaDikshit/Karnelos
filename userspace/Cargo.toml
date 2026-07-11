@@ -1,0 +1,14 @@
+[package]
+name = "karnelos-user"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.dev]
+panic = "abort"
+opt-level = 2
+
+[profile.release]
+panic = "abort"
+opt-level = 3

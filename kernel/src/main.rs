@@ -4,7 +4,7 @@
 extern crate alloc;
 
 use core::panic::PanicInfo;
-use bootloader::bootinfo::BootInfo;
+use bootloader_api::BootInfo;
 
 mod generated;
 mod io;
@@ -12,7 +12,8 @@ mod keyboard;
 mod interrupts;
 mod memory;
 mod shell;
-mod userspace;
+mod loader;
+mod process;
 mod ata;
 mod filesystem;
 
@@ -58,8 +59,9 @@ fn banner_serial() {
     io::serial_write(b"\r\n");
 }
 
-#[no_mangle]
-pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
+bootloader_api::entry_point!(kernel_main);
+
+fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     io::debug_write(b"Karnelos booting...\n");
 
     io::serial_init();
@@ -78,7 +80,7 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     io::debug_write(b"Initializing storage (ATA/IDE)\n");
     ata::init();
     io::debug_write(b"Initializing userspace\n");
-    userspace::init();
+    process::init();
 
     io::debug_write(b"Initializing keyboard\n");
     keyboard::init();

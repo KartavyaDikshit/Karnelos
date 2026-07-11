@@ -1,4 +1,4 @@
-use bootloader::bootinfo::{BootInfo, MemoryRegionType};
+use bootloader_api::{BootInfo, info::MemoryRegionKind};
 use x86_64::PhysAddr;
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{Size4KiB, PhysFrame};
@@ -46,13 +46,13 @@ impl FrameAllocator {
         }
     }
 
-    pub fn init(&mut self, boot_info: &'static BootInfo) {
+    pub fn init(&mut self, boot_info: &BootInfo) {
         let mut max_frame = 0;
-        for region in boot_info.memory_map.iter() {
-            let end = region.range.end_frame_number as usize;
+        for region in boot_info.memory_regions.iter() {
+            let end = (region.end / 4096) as usize;
             if end > max_frame { max_frame = end; }
-            if region.region_type != MemoryRegionType::Usable {
-                for f in region.range.start_frame_number as usize..end.min(MAX_FRAMES) {
+            if region.kind != MemoryRegionKind::Usable {
+                for f in (region.start as usize / 4096)..end.min(MAX_FRAMES) {
                     self.mark_used(f);
                 }
             }
@@ -187,16 +187,16 @@ pub fn phys_to_virt(addr: PhysAddr) -> VirtAddr {
     VirtAddr::new(addr.as_u64() + *PHYS_MEM_OFFSET.lock())
 }
 
-pub fn init(boot_info: &'static BootInfo) {
-    let offset = boot_info.physical_memory_offset;
+pub fn init(boot_info: &'static mut BootInfo) {
+    let offset = boot_info.physical_memory_offset.into_option().unwrap();
     *PHYS_MEM_OFFSET.lock() = offset;
-    FRAME_ALLOCATOR.lock().init(boot_info);
+    FRAME_ALLOCATOR.lock().init(&*boot_info);
 
     let heap_frames = HEAP_SIZE / PAGE_SIZE as usize;
-    for region in boot_info.memory_map.iter() {
-        if region.region_type == MemoryRegionType::Usable {
-            let rstart = region.range.start_addr();
-            let rend = region.range.end_addr();
+    for region in boot_info.memory_regions.iter() {
+        if region.kind == MemoryRegionKind::Usable {
+            let rstart = region.start;
+            let rend = region.end;
             let rsize = rend - rstart;
             if rsize >= HEAP_SIZE as u64 {
                 let start_frame = (rstart / PAGE_SIZE) as usize;

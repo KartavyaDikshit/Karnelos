@@ -106,33 +106,6 @@ Files on persistent storage:
   note  (29 bytes)
 ```
 
-## Project Structure
-
-```
-karnelos/
-├── kernel/           # The Rust no_std kernel (boots in QEMU)
-│   ├── src/
-│   │   ├── main.rs       # Entry point, main loop
-│   │   ├── io.rs         # Serial, VGA, console I/O
-│   │   ├── interrupts.rs # IDT, PIC, exception/IRQ handlers, syscalls
-│   │   ├── keyboard.rs   # PS/2 keyboard driver
-│   │   ├── memory.rs     # Physical frame allocator, heap
-│   │   ├── shell.rs      # Shell with command dispatch
-│   │   ├── userspace.rs  # GDT+TSS, page table setup, ring 3 execution
-│   │   └── generated.rs  # Auto-generated code from LLM
-│   ├── Cargo.toml
-│   └── rust-toolchain.toml
-├── daemon/           # Host-side TCP daemon (Ollama bridge)
-│   ├── src/main.rs  # Listens on :12345, calls Ollama, rebuilds kernel
-│   └── Cargo.toml
-├── generator/        # Standalone CLI code generator
-│   ├── src/main.rs
-│   └── Cargo.toml
-├── roadmap/          # Project scope, architecture, phase plan
-├── Makefile
-└── README.md
-```
-
 ## Prerequisites
 
 ```bash
@@ -140,9 +113,6 @@ karnelos/
 rustup install nightly-2025-07-08
 rustup target add x86_64-unknown-none --toolchain nightly-2025-07-08
 rustup component add llvm-tools-preview --toolchain nightly-2025-07-08
-
-# Bootable image builder
-cargo install bootimage
 
 # QEMU x86-64 emulator
 brew install qemu
@@ -174,53 +144,28 @@ make generate PROMPT="print hello world"
 make clean
 ```
 
-## Commands (within the OS)
+## Project Structure
 
-| Command | Description |
-|---------|-------------|
-| `help` | Show available commands |
-| `memory` | Show memory info (frames, heap, etc.) |
-| `clear` | Clear screen |
-| `echo <text>` | Echo text back |
-| `info` | System information |
-| `gen <prompt>` | Generate an app via LLM, stream it in, and run it (no reboot) |
-| `run` | Re-run the last loaded ELF app |
-| `user` | Run built-in ring-3 demo program |
-| `reboot` | Reboot the system |
-| `test-heap` | Run heap allocation test |
-
-## Hardware Profile
-
-Development target is a QEMU VM with:
-- x86-64, 4 cores, 4GB RAM
-- CPU: Skylake-Server (AVX2)
-- Devices: Dual UART serial, PS/2 controller, VGA text mode
-
-## Architecture
-
-- **COM1** (0x3F8) → User terminal (stdio)
-- **COM2** (0x2F8) → Daemon connection (TCP :12345)
-- **VGA** (0xB8000) → Text mode display (80x25)
-- **Debug port** (0xE9) → Bochs debug console
-
-The daemon runs on the host, receives `KARNELOS_GEN:<prompt>` lines from the kernel
-via COM2, calls Ollama, writes the generated code to `kernel/src/generated.rs`,
-rebuilds the kernel, and sends `BUILD_OK` or `BUILD_FAILED` back.
-
-### Userspace / Syscall Architecture
-
-- **Ring 3 execution** via `iretq` with user code/data segment selectors
-- **GDT layout:** null → ring0 CS → ring0 DS → ring3 CS → ring3 DS → TSS (6 entries)
-- **TSS.privilege_stack_table[0]** = kernel stack for ring 0 interrupt handling from ring 3
-- **`int 0x80`** registered with DPL=3
-- **User page tables** at P4 index 1 (512GB-1024GB range), all entries with `PRESENT | WRITABLE | USER_ACCESSIBLE`
-- **User code** at `0x8000400000`, **user stack** at `0x807FFFF000`
-- **ISA hole** (frames 160-255, 0xA0000-0xBFFFF VGA region) explicitly reserved in bitmap allocator
-
-## Roadmap
-
-See [roadmap/README.md](roadmap/README.md) for the full plan and next steps.
-
-## License
-
-MIT
+```
+karnelos/
+├── kernel/           # The Rust no_std kernel (boots in QEMU)
+│   ├── src/
+│   │   ├── main.rs       # Entry point, main loop
+│   │   ├── io.rs         # Serial, VGA, console I/O
+│   │   ├── interrupts.rs # IDT, PIC, exception/IRQ handlers, syscalls
+│   │   ├── keyboard.rs   # PS/2 keyboard driver
+│   │   ├── memory.rs     # Physical frame allocator, heap
+│   │   ├── shell.rs      # Shell with command dispatch
+│   │   ├── userspace.rs  # GDT+TSS, page table setup, ring 3 execution
+│   │   └── generated.rs  # Auto-generated code from LLM
+│   ├── Cargo.toml
+│   └── rust-toolchain.toml
+├── daemon/           # Host-side TCP daemon (Ollama bridge)
+│   ├── src/main.rs  # Listens on :12345, calls Ollama, rebuilds kernel
+│   └── Cargo.toml
+├── generator/        # Standalone CLI code generator
+│   ├── src/main.rs
+│   └── Cargo.toml
+├── roadmap/          # Project scope, architecture, phase plan
+├── Makefile
+└── README.md

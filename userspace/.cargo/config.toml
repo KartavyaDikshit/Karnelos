@@ -1,0 +1,4 @@
+[target.karnelos-user]
+rustflags = [
+  "-C", "link-arg=-Tlinker.ld",
+]

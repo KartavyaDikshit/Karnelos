@@ -6,7 +6,9 @@
 
 ### Deliverables
 - [x] Rust toolchain (nightly-2025-07-08 + x86_64-unknown-none target)
-- [x] `bootimage` build pipeline (bootloader v0.9.35 with `map_physical_memory`)
+- [x] Custom `mkimage` build pipeline (bootloader v0.11.15 with `BiosBoot::create_disk_image`)
+- [x] Bootloader 0.11.15 patched for cross-compilation (cargo build instead of cargo install)
+- [x] Bootloader target JSON files fixed for rustc 1.90 (string target-pointer-width)
 - [x] Entry point that prints banner to VGA buffer + UART
 - [x] Makefile with `build`, `run`, `run-daemon`, `clean` targets
 - [x] `.gitignore` for build artifacts
@@ -274,7 +276,7 @@ host:  prompt ─► daemon ─build(userspace target)─► ELF ─COM2(TCP)─
 | 2 - Interrupts/Input | 3-5 days | Phase 0 | ✅ Complete |
 | 3 - LLM Integration | 2-3 weeks | Phase 1, 2 | ✅ Complete (daemon-based) |
 | 3a - Userspace | 1-2 weeks | Phase 2 | ✅ Complete |
-| 4 - Persistent Storage | 1-2 weeks | Phase 1 | 🟡 In progress (core done) |
+| 4 - Persistent Storage | 1-2 weeks | Phase 1 | ✅ Complete |
 | 5 - Applications | 3-4 weeks | Phase 3a, 4 | ❌ Not started |
 | 6 - Self-Improving | 3-4 weeks | Phase 5 | ❌ Not started |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |

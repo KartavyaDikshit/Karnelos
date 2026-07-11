@@ -33,6 +33,8 @@ generates the code — optimized for your exact hardware and your exact workflow
 
 **Phases 0-2: Complete.** The kernel boots, manages memory, handles interrupts,
 drives a keyboard and serial I/O, and provides a shell with VGA+serial output.
+The build system uses a custom `mkimage` tool with bootloader 0.11.15 (patched
+for cross-compilation on aarch64 hosts and rustc 1.90 target spec compatibility).
 
 **Phase 3 (LLM Integration): Partial.** Instead of embedding the LLM inside the kernel
 (original plan), we use a pragmatic host-side daemon that communicates with the kernel

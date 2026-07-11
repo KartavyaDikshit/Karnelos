@@ -1,8 +1,14 @@
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::PhysAddr;
+use x86_64::structures::paging::PhysFrame;
+use x86_64::registers::control::{Cr3, Cr3Flags};
 use pic8259::ChainedPics;
 use spin::Mutex;
 use crate::keyboard;
 use crate::io;
+use crate::memory;
+use crate::filesystem;
+use crate::process;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = 40;
@@ -29,7 +35,10 @@ pub fn init() {
         let idt = &mut *core::ptr::addr_of_mut!(IDT);
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         idt.page_fault.set_handler_fn(page_fault_handler);
-        idt.double_fault.set_handler_fn(double_fault_handler);
+        // Register via set_handler_addr to avoid the diverging-handler
+        // (`-> !`) type requirement; the function itself returns `()`.
+        let df_addr = x86_64::VirtAddr::new(double_fault_handler as *const () as u64);
+        idt.double_fault.set_handler_addr(df_addr);
         idt.general_protection_fault.set_handler_fn(gpf_handler);
         idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
         idt.stack_segment_fault.set_handler_fn(ssf_handler);
@@ -84,7 +93,7 @@ extern "x86-interrupt" fn page_fault_handler(stack: InterruptStackFrame, code: P
     halt_loop();
 }
 
-extern "x86-interrupt" fn double_fault_handler(stack: InterruptStackFrame, _code: u64) -> ! {
+extern "x86-interrupt" fn double_fault_handler(stack: InterruptStackFrame, _code: u64) {
     print_exception(b"DOUBLE FAULT", &stack, None);
     halt_loop();
 }
@@ -120,40 +129,83 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
 }
 
 // --- Syscall (int 0x80) ---
-// r8 = pointer to CPU-pushed frame: [RIP, CS, RFLAGS, RSP, SS]
+// Stable ABI (matches the userspace `syscall!` macro):
+//   rax = syscall number
+//   rdi, rsi, rdx, r10, r8, r9 = up to 6 arguments
+//   return value in rax
+//
+// The stub saves all GPRs, shuffles them into the C calling convention
+// (rdi,rsi,rdx,rcx,r8,r9), calls `syscall_handler`, restores the return value
+// into the saved rax slot, restores the GPRs, and `iretq`s back to ring 3.
 core::arch::global_asm!(
     ".globl int_80_stub",
     "int_80_stub:",
-    "  sub rsp, 48",
-    "  mov [rsp], rax",
-    "  mov [rsp+8], rbx",
-    "  mov [rsp+16], rcx",
-    "  mov [rsp+24], rdx",
-    "  mov [rsp+32], rsi",
-    "  mov [rsp+40], rdi",
-    "  mov rdi, [rsp]",     // arg1: syscall number (was rax)
-    "  mov rsi, [rsp+8]",   // arg2: arg1 (was rbx)
-    "  mov rdx, [rsp+16]",  // arg3: arg2 (was rcx)
-    "  mov rcx, [rsp+24]",  // arg4: arg3 (was rdx)
-    "  lea r8, [rsp+48]",   // arg5: pointer to CPU-pushed frame
+    "  push rax",
+    "  push rbx",
+    "  push rcx",
+    "  push rdx",
+    "  push rsi",
+    "  push rdi",
+    "  push rbp",
+    "  push r8",
+    "  push r9",
+    "  push r10",
+    "  push r11",
+    "  push r12",
+    "  push r13",
+    "  push r14",
+    "  push r15",
+    "  mov rdi, rax",          // num
+    "  mov rsi, [rsp+5*8]",     // saved rdi  -> arg1
+    "  mov rdx, [rsp+4*8]",     // saved rsi  -> arg2
+    "  mov rcx, [rsp+3*8]",     // saved rdx  -> arg3
+    "  mov r8,  [rsp+9*8]",     // saved r10  -> arg4
+    "  mov r9,  [rsp+7*8]",     // saved r8   -> arg5
     "  call syscall_handler",
-    "  mov [rsp], rax",     // save return value over saved rax
-    "  mov rbx, [rsp+8]",
-    "  mov rcx, [rsp+16]",
-    "  mov rdx, [rsp+24]",
-    "  mov rsi, [rsp+32]",
-    "  mov rdi, [rsp+40]",
-    "  add rsp, 48",
+    "  mov [rsp], rax",         // store return over saved rax
+    "  pop r15",
+    "  pop r14",
+    "  pop r13",
+    "  pop r12",
+    "  pop r11",
+    "  pop r10",
+    "  pop r9",
+    "  pop r8",
+    "  pop rbp",
+    "  pop rdi",
+    "  pop rsi",
+    "  pop rdx",
+    "  pop rcx",
+    "  pop rbx",
+    "  pop rax",
     "  iretq",
 );
 
 #[no_mangle]
-extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, _arg3: u64, _frame: *mut [u64; 5]) -> u64 {
+extern "C" fn syscall_handler(
+    num: u64,
+    a: u64,
+    b: u64,
+    c: u64,
+    _d: u64,
+    _e: u64,
+) -> u64 {
     match num {
+        // exit(code)
         0 => {
-            io::console_write(b"User program exited\r\n");
-            // Switch to the saved kernel stack and return to the shell.
-            if let Some(ctx) = crate::userspace::EXIT_CTX.lock().take() {
+            let ctx = process::EXIT_CTX.lock().take();
+            if let Some(ctx) = ctx {
+                // Restore the kernel page tables.
+                let kp = PhysFrame::from_start_address(PhysAddr::new(ctx.kernel_p4_phys)).unwrap();
+                unsafe { Cr3::write(kp, Cr3Flags::empty()); }
+                // Free the process's frames.
+                if let Some(proc) = process::CURRENT_PROCESS.lock().take() {
+                    for f in proc.frames {
+                        memory::FRAME_ALLOCATOR.lock().deallocate(f);
+                    }
+                    memory::FRAME_ALLOCATOR.lock().deallocate(proc.p4_frame);
+                }
+                // Switch to the kernel stack and return to the shell.
                 unsafe {
                     core::arch::asm!(
                         "mov rsp, {rsp}",
@@ -164,18 +216,63 @@ extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, _arg3: u64, _frame
                     );
                 }
             }
-            // fallback: shouldn't reach here
             loop { x86_64::instructions::hlt(); }
         }
+        // write(buf_ptr, len) -> bytes written
         1 => {
-            // console_write(buf_addr, len)
-            let buf = arg1 as *const u8;
-            let len = arg2 as usize;
-            if len > 0 && len <= 4096 {
+            let buf = a as *const u8;
+            let len = b as usize;
+            if len > 0 && len <= 8192 {
                 let slice = unsafe { core::slice::from_raw_parts(buf, len) };
                 io::console_write(slice);
             }
             0
+        }
+        // read(buf_ptr, len) -> bytes read (from keyboard)
+        2 => {
+            let buf = a as *mut u8;
+            let max = b as usize;
+            let mut n = 0usize;
+            while n < max {
+                match crate::keyboard::read_char() {
+                    Some(ch) => {
+                        unsafe { *buf.add(n) = ch; }
+                        n += 1;
+                        if ch == b'\r' || ch == b'\n' { break; }
+                    }
+                    None => break,
+                }
+            }
+            n as u64
+        }
+        // storage_read(name_ptr, buf_ptr, len) -> bytes read
+        4 => {
+            let (name, nl) = read_name(a as *const u8);
+            let buf = b as *mut u8;
+            let buflen = c as usize;
+            let mut kbuf = [0u8; 4096];
+            let n = filesystem::read_file(&name[..nl], &mut kbuf);
+            let n = n.min(buflen).min(4096);
+            unsafe { core::ptr::copy_nonoverlapping(kbuf.as_ptr(), buf, n); }
+            n as u64
+        }
+        // storage_write(name_ptr, data_ptr, len) -> bytes written
+        5 => {
+            let (name, nl) = read_name(a as *const u8);
+            let data = b as *const u8;
+            let len = c as usize;
+            let n = len.min(4096);
+            let mut kbuf = [0u8; 4096];
+            unsafe { core::ptr::copy_nonoverlapping(data, kbuf.as_mut_ptr(), n); }
+            filesystem::write_file(&name[..nl], &kbuf[..n]);
+            n as u64
+        }
+        // getchar() -> char or 0
+        6 => {
+            match crate::keyboard::read_char() {
+                Some(ch) => ch as u64,
+                None => 0,
+            }
         }
         42 => {
             io::console_write(b"Hello from ring 3!\r\n");
@@ -192,6 +289,19 @@ extern "C" fn syscall_handler(num: u64, arg1: u64, arg2: u64, _arg3: u64, _frame
             0
         }
     }
+}
+
+/// Read a NUL-terminated name from a user pointer (max 56 bytes).
+fn read_name(ptr: *const u8) -> ([u8; 56], usize) {
+    let mut name = [0u8; 56];
+    let mut nl = 0;
+    while nl < 55 {
+        let ch = unsafe { *ptr.add(nl) };
+        if ch == 0 { break; }
+        name[nl] = ch;
+        nl += 1;
+    }
+    (name, nl)
 }
 
 pub fn register_int0x80() {
