@@ -128,7 +128,7 @@ AI-native OS loop without the complexity of running an LLM in-kernel.
 
 ## Phase 5: Generated Applications (ELF loader + process model)
 
-**Status: In progress**
+**Status: Complete**
 
 The "real OS that writes apps" experience. Instead of recompiling the kernel and
 rebooting for every generated snippet, the LLM (host daemon for now; on-device in
@@ -149,50 +149,99 @@ host:  prompt ─► daemon ─build(userspace target)─► ELF ─COM2(TCP)─
 - Stable **syscall ABI**: `rax`=num, args `rdi,rsi,rdx,r10,r8,r9`, return `rax`,
   dispatched through `int 0x80` (DPL=3).
 - Single process at a time (multitasking deferred to Phase 8).
+- **Framebuffer console** (`io.rs`): bootloader-provided framebuffer rendered
+  with a built-in 8×8 bitmap font + 16-color VGA palette, replacing the legacy
+  `0xB8000` text-mode buffer.
 
 ### Deliverables / Milestones
-- [ ] **M1 — Userspace toolchain + runtime**
-  - [ ] `userspace/karnelos-user.json` target spec (PIE, `disable-redzone`,
+- [x] **M1 — Userspace toolchain + runtime**
+  - [x] `userspace/karnelos-user.json` target spec (PIE, `disable-redzone`,
         `panic=abort`, based on `x86_64-unknown-none`)
-  - [ ] `linker.ld` + `_start` (zero BSS, 16B-aligned stack, call `main`, exit)
-  - [ ] `rt/syscall.rs` (`int 0x80` wrapper + `syscall!` macro), `rt/panic.rs`,
-        optional bump `GlobalAllocator`
-  - [ ] `app/src/main.rs` template overwritten by the daemon
-  - [ ] `make userspace` → `cargo build -Z build-std=core,alloc --target ...`
-  - [ ] Verify: `readelf -h` PIE, `readelf -r` **no relocations**
-- [ ] **M2 — ELF64 loader** (`kernel/src/loader.rs`): parse hdr + program
-      headers, map `PT_LOAD` segments, zero BSS, validate entry, assert no relocs
-- [ ] **M3 — Process model** (`kernel/src/process.rs`, replaces `userspace.rs`
-      demo): `Process` struct, per-process P4 (clone kernel half), dedicated
-      kernel stack in `TSS.privilege_stack_table[0]`, `run_process` via `iretq`,
-      exit syscall frees frames + restores kernel `CR3` + returns to shell
-- [ ] **M4 — Syscall ABI expansion** (`interrupts.rs`): `1 write`, `2 read`,
-      `3 exit`, `4 storage_read`, `5 storage_write`, `6 getchar` (keep `0/1/42`)
-- [ ] **M5 — COM2 streaming delivery**: daemon writes `app/src/main.rs`, builds
-      ELF, sends `KARNELOS_ELF:<u32 len>\n<bytes>` over TCP/COM2; kernel shell
-      `gen <prompt>` enters an ELF receive state machine → load → run. Add `run`
-      to re-run last ELF. No reboot.
-- [ ] **M6 — Demo apps + docs**: generate a working demo via `gen`; optional
-      `storage write <app> <elf>` + `run <name>` for persistence; update README
-      + this roadmap
+  - [x] `linker.ld` + `_start` (zero BSS, call `main`, exit) in `rt.rs`
+  - [x] `rt.rs` (`int 0x80` wrapper + `syscall!` macro, bump allocator,
+        `memcpy/memset/memcmp/memmove` builtins, panic/alloc handlers)
+  - [x] `userspace/src/main.rs` template with `KARNELOS_BODY_START/END` markers
+        overwritten by the daemon
+  - [x] `make userspace` → `cargo +nightly-2025-07-08 build -Z build-std=core,alloc`
+  - [x] Verify: `readelf -h` PIE, `readelf -r` **no relocations**
+- [x] **M2 — ELF64 loader** (`kernel/src/loader.rs`): parse hdr + program
+      headers, map `PT_LOAD` segments, zero BSS, validate entry, apply
+      `R_X86_64_RELATIVE` relocs, reject any other type
+- [x] **M3 — Process model** (`kernel/src/process.rs`): `Process` struct,
+      per-process P4 (clone kernel half), dedicated kernel stack in
+      `TSS.privilege_stack_table[0]`, `run_elf` via `iretq`, exit syscall
+      frees frames + restores kernel `CR3` + returns to shell
+- [x] **M4 — Syscall ABI expansion** (`interrupts.rs`): `0 exit`, `1 write`,
+      `2 read`, `4 storage_read`, `5 storage_write`, `6 getchar` (+ `42 hello`)
+- [x] **M5 — COM2 streaming delivery**: daemon writes `userspace/src/main.rs`,
+      builds the ELF, sends `<size>\n<bytes>` over TCP/COM2; kernel shell
+      `gen <prompt>` enters an ELF receive state machine → load → auto-run.
+      `run` re-runs the last received ELF. No reboot.
+- [x] **M6 (docs half) — README + this roadmap** updated for the framebuffer
+      console + ELF streaming pipeline. (App *persistence* + demo apps moved to
+      Phase 5b below.)
 
 ### Test
-- `make run-daemon` → OS: `gen print the numbers 1 through 5` → app runs
-  **without reboot**, exits back to shell.
-- `storage format/write/read/ls` still works via M4 syscalls.
-- `user` command still demonstrates ring-3 execution.
+- `make userspace` → PIE ELF produced with no relocations.
+- `user` command → ring-3 inline demo runs ("Hello from ring 3!" + "Syscall 1
+  works!"), returns to shell.
+- `make run-test` → QEMU boots, banner + `karnelos> ` prompt on serial.
 
-**Estimated effort:** 2-3 weeks (M1+M2+M3 are the heavy lifting)
+**Estimated effort:** done
 
 ---
 
-## Phase 5: Generated Applications
+## Phase 5b: Generated Applications — Persistence + Demos
+
+**Status: In progress (next phase)**
+
+Turn the working ELF pipeline into a usable app platform. Scope chosen for this
+phase: **persistence + lightweight demos** (no LLM-quality-dependent showcase
+apps yet). Live `gen` requires `ollama serve` + `qwen2.5-coder:1.5b`; all
+build/test work here is verifiable **without** a running LLM.
+
+### Deliverables / Milestones
+- [ ] **M6a — COM2 flow control (correctness fix).** The kernel polls COM2
+      one byte at a time in `shell_main_loop`; QEMU's UART has only a 16-byte
+      FIFO, so a multi-KB ELF blasted by the daemon **overflows and drops
+      bytes**. Add a minimal handshake: after the kernel reads the decimal size and
+      enters `AwaitingData`, it writes **one ACK byte back on COM2**; the daemon
+      waits for that ACK before streaming the binary. (Stretch: chunked ACK every
+      N bytes for very large ELFs.)
+- [ ] **M6b — App persistence** (`app save` / `app run`): the flat FS already
+      stores raw bytes (`filesystem::write_file(name, &[u8])` /
+      `read_file(name, &mut [u8]) -> usize`), so:
+  - `app save <name>` → `write_file(name, &shell.last_elf[..last_elf_len])`
+  - `app run <name>` → `read_file` into a buffer, then `process::run_elf(slice)`
+  - Add `app` dispatch in `shell::execute` + `cmd_app`; update `help`
+- [ ] **M6c — Lightweight demo validation (no LLM needed):**
+  - `user` command (ring-3 inline demo) exercises the `run_elf`/`iretq`/exit path
+  - `make userspace` builds the checked-in counter app → confirm PIE, no relocs
+  - Feed that built ELF through `app save <name>` / `app run <name>` to prove
+    persistence end-to-end reproducibly
+  - (Optional) a checked-in `echo`/interactive app template using syscall `2`/`6`
+
+### Test
+- `make build` + `make userspace` + `cd daemon && cargo build --release` all pass.
+- `make run-test` boots, prints banner + prompt (no ollama).
+- At the shell: `user` → demo runs and returns; `app save demo` then `app run demo`
+  → same ELF reloads and runs from storage.
+- (Precondition, out of scope for automated test) `ollama serve` running →
+  `make run-daemon`, then `gen <prompt>` → app streams + runs, no reboot.
+
+**Estimated effort:** ~1 week
+
+---
+
+## Phase 5c: Generated Applications — Showcase Apps (future)
 
 **Status: Not started**
 
+Real LLM-generated apps on top of the Phase 5b platform:
+
 ### Deliverables
 - [ ] Calendar app with reminders
-- [ ] Todo app with categories
+- [ ] Todo app with categories (exercises storage syscalls 4/5)
 - [ ] Custom LaTeX compiler (the writer's use case: `7exp7=8x()x`)
 - [ ] Terminal text editor
 - [ ] File manager
@@ -277,6 +326,8 @@ host:  prompt ─► daemon ─build(userspace target)─► ELF ─COM2(TCP)─
 | 3 - LLM Integration | 2-3 weeks | Phase 1, 2 | ✅ Complete (daemon-based) |
 | 3a - Userspace | 1-2 weeks | Phase 2 | ✅ Complete |
 | 4 - Persistent Storage | 1-2 weeks | Phase 1 | ✅ Complete |
-| 5 - Applications | 3-4 weeks | Phase 3a, 4 | ❌ Not started |
-| 6 - Self-Improving | 3-4 weeks | Phase 5 | ❌ Not started |
+| 5 - ELF loader + process model | 2-3 weeks | Phase 3a, 4 | ✅ Complete |
+| 5b - App persistence + demos | ~1 week | Phase 5 | 🔶 In progress |
+| 5c - Showcase apps | 3-4 weeks | Phase 5b | ❌ Not started |
+| 6 - Self-Improving | 3-4 weeks | Phase 5b | ❌ Not started |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |

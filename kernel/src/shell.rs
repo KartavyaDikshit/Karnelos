@@ -1,45 +1,100 @@
 use alloc::vec::Vec;
 use crate::io;
 use crate::memory;
+use crate::process;
 
 const MAX_LINE: usize = 255;
-const RESP_BUF: usize = 128;
+const MAX_ELF_SIZE: usize = 512 * 1024;
+
+enum ElfState {
+    Idle,
+    AwaitingSize,
+    AwaitingData { remaining: usize },
+}
 
 pub struct Shell {
     line: [u8; MAX_LINE + 1],
     len: usize,
     prompt: &'static [u8],
-    resp_buf: [u8; RESP_BUF],
-    resp_len: usize,
-    awaiting_response: bool,
+    elf_state: ElfState,
+    elf_buf: [u8; MAX_ELF_SIZE],
+    elf_len: usize,
+    last_elf: [u8; MAX_ELF_SIZE],
+    last_elf_len: usize,
+    size_buf: [u8; 10],
+    size_len: usize,
 }
 
 impl Shell {
     pub fn new(prompt: &'static [u8]) -> Self {
-        Shell { line: [0; MAX_LINE + 1], len: 0, prompt,
-                resp_buf: [0; RESP_BUF], resp_len: 0, awaiting_response: false }
+        Shell {
+            line: [0; MAX_LINE + 1], len: 0, prompt,
+            elf_state: ElfState::Idle,
+            elf_buf: [0; MAX_ELF_SIZE],
+            elf_len: 0,
+            last_elf: [0; MAX_ELF_SIZE],
+            last_elf_len: 0,
+            size_buf: [0; 10],
+            size_len: 0,
+        }
     }
 
-    pub fn awaiting_response(&self) -> bool { self.awaiting_response }
+    pub fn awaiting_response(&self) -> bool {
+        matches!(self.elf_state, ElfState::AwaitingSize | ElfState::AwaitingData { .. })
+    }
 
     pub fn handle_daemon_byte(&mut self, b: u8) {
-        if b == b'\n' || self.resp_len >= RESP_BUF - 1 {
-            self.resp_buf[self.resp_len] = 0;
-            let len = self.resp_len + 1;
-            let trimmed = self.resp_buf[..len].trim_ascii();
-            io::console_write(trimmed);
-            io::console_write(b"\r\n");
-            if trimmed == b"BUILD_OK" {
-                io::console_write(b"Type 'reboot' to load the new kernel with generated code.\r\n");
+        match self.elf_state {
+            ElfState::Idle => {}
+            ElfState::AwaitingSize => {
+                if b == b'\n' {
+                    let size_str = core::str::from_utf8(&self.size_buf[..self.size_len]).unwrap_or("0");
+                    let size: usize = size_str.parse().unwrap_or(0);
+                    if size == 0 || size > MAX_ELF_SIZE {
+                        io::console_write(b"\r\nInvalid ELF size\r\n");
+                        self.elf_state = ElfState::Idle;
+                        self.elf_len = 0;
+                        self.size_len = 0;
+                        self.print_prompt();
+                        return;
+                    }
+                    self.elf_state = ElfState::AwaitingData { remaining: size };
+                    self.elf_len = 0;
+                    self.size_len = 0;
+                } else if b >= b'0' && b <= b'9' {
+                    if self.size_len < 9 {
+                        self.size_buf[self.size_len] = b;
+                        self.size_len += 1;
+                    }
+                }
             }
-            self.resp_len = 0;
-            self.awaiting_response = false;
-            self.print_prompt();
-        } else if b == b'\r' {
-            // skip
-        } else {
-            self.resp_buf[self.resp_len] = b;
-            self.resp_len += 1;
+            ElfState::AwaitingData { remaining } => {
+                if self.elf_len < MAX_ELF_SIZE {
+                    self.elf_buf[self.elf_len] = b;
+                    self.elf_len += 1;
+                }
+                let new_remaining = remaining - 1;
+                if new_remaining == 0 {
+                    io::console_write(b"\r\nELF received, loading...\r\n");
+                    let elf_slice = &self.elf_buf[..self.elf_len];
+                    self.last_elf_len = self.elf_len;
+                    self.last_elf[..self.elf_len].copy_from_slice(&self.elf_buf[..self.elf_len]);
+                    self.elf_state = ElfState::Idle;
+                    self.elf_len = 0;
+                    self.size_len = 0;
+                    match process::run_elf(elf_slice) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            io::console_write(b"ELF run failed: ");
+                            io::console_write(e.as_bytes());
+                            io::console_write(b"\r\n");
+                            self.print_prompt();
+                        }
+                    }
+                } else {
+                    self.elf_state = ElfState::AwaitingData { remaining: new_remaining };
+                }
+            }
         }
     }
 
@@ -91,7 +146,7 @@ impl Shell {
             b"echo" => cmd_echo(args),
             b"info" => cmd_info(),
             b"gen" | b"generate" => self.cmd_gen(args),
-            b"run" => cmd_run(),
+            b"run" => self.cmd_run(),
             b"user" => cmd_user(),
             b"reboot" => cmd_reboot(),
             b"test-heap" => cmd_test_heap(),
@@ -113,8 +168,26 @@ impl Shell {
         io::serial_write_port(io::COM2, b"KARNELOS_GEN:");
         io::serial_write_port(io::COM2, _args);
         io::serial_write_port(io::COM2, b"\n");
-        self.awaiting_response = true;
-        self.resp_len = 0;
+        self.elf_state = ElfState::AwaitingSize;
+        self.elf_len = 0;
+        self.size_len = 0;
+    }
+
+    fn cmd_run(&mut self) {
+        if self.last_elf_len == 0 {
+            io::console_write(b"No ELF loaded. Use 'gen' first.\r\n");
+            return;
+        }
+        io::console_write(b"Running last ELF...\r\n");
+        let elf_slice = &self.last_elf[..self.last_elf_len];
+        match process::run_elf(elf_slice) {
+            Ok(()) => {}
+            Err(e) => {
+                io::console_write(b"ELF run failed: ");
+                io::console_write(e.as_bytes());
+                io::console_write(b"\r\n");
+            }
+        }
     }
 }
 
@@ -144,10 +217,10 @@ fn cmd_help() {
     writeln(b"  clear|cls   - Clear screen");
     writeln(b"  echo <text> - Echo text");
     writeln(b"  info        - System information");
-    writeln(b"  gen|generate <prompt> - Generate code via LLM");
-    writeln(b"  run         - Run the last generated code");
+    writeln(b"  gen|generate <prompt> - Generate a ring-3 app via LLM (no reboot)");
+    writeln(b"  run         - Run the last generated app");
     writeln(b"  user        - Test ring 3 user execution");
-    writeln(b"  reboot      - Reboot the system (loads new kernel after gen)");
+    writeln(b"  reboot      - Reboot the system");
     writeln(b"  test-heap   - Run heap allocation test");
     writeln(b"  storage <cmd> - Persistent storage (format|ls|write|read|info)");
 }
@@ -158,8 +231,9 @@ fn cmd_memory() {
 
 fn cmd_clear() {
     io::vga_clear(0x0F, 0x00);
-    io::VGA_WRITER.lock().row = 8;
-    io::VGA_WRITER.lock().col = 0;
+    let mut fb = io::FRAMEBUFFER.lock();
+    fb.row = 8;
+    fb.col = 0;
 }
 
 fn cmd_info() {
@@ -195,10 +269,6 @@ fn cmd_test_heap() {
     writeln(s.as_bytes());
 }
 
-fn cmd_run() {
-    crate::generated::generated_main();
-}
-
 fn cmd_user() {
     crate::process::run_user_demo();
 }
@@ -209,7 +279,6 @@ fn cmd_reboot() {
 }
 
 fn cmd_storage(args: &[u8]) {
-    // Parse subcommand + argument
     let mut it = args.splitn(2, |&b| b == b' ' || b == b'\t');
     let sub = it.next().unwrap_or(&[][..]).trim_ascii();
     let rest = it.next().unwrap_or(&[][..]).trim_ascii();
@@ -219,7 +288,6 @@ fn cmd_storage(args: &[u8]) {
         b"ls" | b"list" => crate::filesystem::list(),
         b"info" => crate::filesystem::info(),
         b"write" => {
-            // rest = "<name> <text...>"
             let sp = rest.iter().position(|&b| b == b' ' || b == b'\t');
             match sp {
                 Some(i) => {

@@ -1,7 +1,405 @@
+use spin::Mutex;
+use bootloader_api::info::PixelFormat;
+
 pub const COM1: u16 = 0x3F8;
 pub const COM2: u16 = 0x2F8;
 pub const DEBUG_PORT: u16 = 0xE9;
-pub const VGA_ADDR: *mut u8 = 0xB8000 as *mut u8;
+
+// Framebuffer state (set from boot_info during kernel_main)
+pub struct FramebufferState {
+    pub addr: u64,
+    pub width: usize,
+    pub height: usize,
+    pub bytes_per_pixel: usize,
+    pub stride: usize,
+    pub pixel_format: PixelFormat,
+    pub row: usize,
+    pub col: usize,
+    pub fg: u8,
+    pub bg: u8,
+}
+
+impl FramebufferState {
+    pub const fn new() -> Self {
+        FramebufferState {
+            addr: 0,
+            width: 0,
+            height: 0,
+            bytes_per_pixel: 0,
+            stride: 0,
+            pixel_format: PixelFormat::Bgr,
+            row: 0,
+            col: 0,
+            fg: 0x0F,
+            bg: 0x00,
+        }
+    }
+}
+
+pub static FRAMEBUFFER: Mutex<FramebufferState> = Mutex::new(FramebufferState::new());
+
+// 8x8 monospace font for ASCII 32..=126 (simplified)
+// Each glyph is 8 bytes, 1 bit per pixel (MSB = leftmost)
+const FONT: &[u8; 95 * 8] = &[
+    // Space (32)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // ! (33)
+    0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00,
+    // " (34)
+    0x6C, 0x6C, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // # (35)
+    0x6C, 0x6C, 0xFE, 0x6C, 0xFE, 0x6C, 0x6C, 0x00,
+    // $ (36)
+    0x18, 0x7E, 0x60, 0x3C, 0x06, 0x7E, 0x18, 0x00,
+    // % (37)
+    0x00, 0xC6, 0xCC, 0x18, 0x30, 0x66, 0xC6, 0x00,
+    // & (38)
+    0x38, 0x6C, 0x38, 0x76, 0xDC, 0xCC, 0x76, 0x00,
+    // ' (39)
+    0x18, 0x18, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // ( (40)
+    0x0C, 0x18, 0x30, 0x30, 0x30, 0x18, 0x0C, 0x00,
+    // ) (41)
+    0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0x00,
+    // * (42)
+    0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00,
+    // + (43)
+    0x00, 0x18, 0x18, 0x7E, 0x18, 0x18, 0x00, 0x00,
+    // , (44)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x30,
+    // - (45)
+    0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00,
+    // . (46)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00,
+    // / (47)
+    0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00,
+    // 0 (48)
+    0x7C, 0xC6, 0xCE, 0xD6, 0xE6, 0xC6, 0x7C, 0x00,
+    // 1 (49)
+    0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00,
+    // 2 (50)
+    0x7C, 0xC6, 0x06, 0x1C, 0x30, 0x66, 0xFE, 0x00,
+    // 3 (51)
+    0x7C, 0xC6, 0x06, 0x3C, 0x06, 0xC6, 0x7C, 0x00,
+    // 4 (52)
+    0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x0C, 0x00,
+    // 5 (53)
+    0xFE, 0xC0, 0xFC, 0x06, 0x06, 0xC6, 0x7C, 0x00,
+    // 6 (54)
+    0x38, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0x7C, 0x00,
+    // 7 (55)
+    0xFE, 0xC6, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00,
+    // 8 (56)
+    0x7C, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0x7C, 0x00,
+    // 9 (57)
+    0x7C, 0xC6, 0xC6, 0x7E, 0x06, 0x0C, 0x78, 0x00,
+    // : (58)
+    0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00,
+    // ; (59)
+    0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x30,
+    // < (60)
+    0x06, 0x0C, 0x18, 0x30, 0x18, 0x0C, 0x06, 0x00,
+    // = (61)
+    0x00, 0x00, 0x7E, 0x00, 0x7E, 0x00, 0x00, 0x00,
+    // > (62)
+    0x60, 0x30, 0x18, 0x0C, 0x18, 0x30, 0x60, 0x00,
+    // ? (63)
+    0x7C, 0xC6, 0x0C, 0x18, 0x18, 0x00, 0x18, 0x00,
+    // @ (64)
+    0x7C, 0xC6, 0xDE, 0xDE, 0xDE, 0xC0, 0x7C, 0x00,
+    // A (65)
+    0x7C, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00,
+    // B (66)
+    0xFC, 0xC6, 0xC6, 0xFC, 0xC6, 0xC6, 0xFC, 0x00,
+    // C (67)
+    0x7C, 0xC6, 0xC0, 0xC0, 0xC0, 0xC6, 0x7C, 0x00,
+    // D (68)
+    0xF8, 0xCC, 0xC6, 0xC6, 0xC6, 0xCC, 0xF8, 0x00,
+    // E (69)
+    0xFE, 0xC0, 0xC0, 0xFC, 0xC0, 0xC0, 0xFE, 0x00,
+    // F (70)
+    0xFE, 0xC0, 0xC0, 0xFC, 0xC0, 0xC0, 0xC0, 0x00,
+    // G (71)
+    0x7C, 0xC6, 0xC0, 0xCE, 0xC6, 0xC6, 0x7E, 0x00,
+    // H (72)
+    0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00,
+    // I (73)
+    0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00,
+    // J (74)
+    0x1E, 0x06, 0x06, 0x06, 0xC6, 0xC6, 0x7C, 0x00,
+    // K (75)
+    0xC6, 0xCC, 0xD8, 0xF0, 0xD8, 0xCC, 0xC6, 0x00,
+    // L (76)
+    0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFE, 0x00,
+    // M (77)
+    0xC6, 0xEE, 0xFE, 0xD6, 0xC6, 0xC6, 0xC6, 0x00,
+    // N (78)
+    0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00,
+    // O (79)
+    0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00,
+    // P (80)
+    0xFC, 0xC6, 0xC6, 0xFC, 0xC0, 0xC0, 0xC0, 0x00,
+    // Q (81)
+    0x7C, 0xC6, 0xC6, 0xC6, 0xD6, 0xDE, 0x7C, 0x06,
+    // R (82)
+    0xFC, 0xC6, 0xC6, 0xFC, 0xD8, 0xCC, 0xC6, 0x00,
+    // S (83)
+    0x7C, 0xC6, 0xC0, 0x7C, 0x06, 0xC6, 0x7C, 0x00,
+    // T (84)
+    0xFE, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00,
+    // U (85)
+    0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00,
+    // V (86)
+    0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00,
+    // W (87)
+    0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00,
+    // X (88)
+    0xC6, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0xC6, 0x00,
+    // Y (89)
+    0xC6, 0xC6, 0x6C, 0x38, 0x18, 0x18, 0x18, 0x00,
+    // Z (90)
+    0xFE, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xFE, 0x00,
+    // [ (91)
+    0x3E, 0x36, 0x36, 0x36, 0x36, 0x36, 0x3E, 0x00,
+    // \ (92)
+    0x80, 0xC0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x00,
+    // ] (93)
+    0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00,
+    // ^ (94)
+    0x00, 0x18, 0x3C, 0x66, 0x00, 0x00, 0x00, 0x00,
+    // _ (95)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+    // ` (96)
+    0x18, 0x18, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // a (97)
+    0x00, 0x00, 0x78, 0x0C, 0x7C, 0xCC, 0x76, 0x00,
+    // b (98)
+    0xC0, 0xC0, 0xC0, 0xDC, 0xC6, 0xC6, 0x7C, 0x00,
+    // c (99)
+    0x00, 0x00, 0x78, 0xC6, 0xC6, 0xC6, 0x6C, 0x00,
+    // d (100)
+    0x06, 0x06, 0x06, 0x76, 0xC6, 0xC6, 0x7C, 0x00,
+    // e (101)
+    0x00, 0x00, 0x7C, 0xC6, 0xFE, 0xC0, 0x78, 0x00,
+    // f (102)
+    0x1C, 0x36, 0x30, 0x78, 0x30, 0x30, 0x78, 0x00,
+    // g (103)
+    0x00, 0x00, 0x76, 0xC6, 0xC6, 0x7E, 0x06, 0xFC,
+    // h (104)
+    0xC0, 0xC0, 0xCC, 0xF8, 0xCC, 0xCC, 0xCC, 0x00,
+    // i (105)
+    0x30, 0x00, 0x70, 0x30, 0x30, 0x30, 0x78, 0x00,
+    // j (106)
+    0x0C, 0x00, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78,
+    // k (107)
+    0xC0, 0xC0, 0xCC, 0xD8, 0xF0, 0xD8, 0xCC, 0x00,
+    // l (108)
+    0x70, 0x30, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00,
+    // m (109)
+    0x00, 0x00, 0xCC, 0xFE, 0xFE, 0xD6, 0xC6, 0x00,
+    // n (110)
+    0x00, 0x00, 0xDC, 0xC6, 0xC6, 0xC6, 0xC6, 0x00,
+    // o (111)
+    0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0x00,
+    // p (112)
+    0x00, 0x00, 0xDC, 0xC6, 0xC6, 0xFC, 0xC0, 0xC0,
+    // q (113)
+    0x00, 0x00, 0x76, 0xC6, 0xC6, 0x7E, 0x06, 0x06,
+    // r (114)
+    0x00, 0x00, 0xDC, 0xCC, 0xCC, 0xCC, 0xCC, 0x00,
+    // s (115)
+    0x00, 0x00, 0x7C, 0xC0, 0x7C, 0x06, 0x7C, 0x00,
+    // t (116)
+    0x30, 0x30, 0xFC, 0x30, 0x30, 0x36, 0x1C, 0x00,
+    // u (117)
+    0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xC6, 0x7E, 0x00,
+    // v (118)
+    0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00,
+    // w (119)
+    0x00, 0x00, 0xC6, 0xC6, 0xD6, 0xFE, 0x6C, 0x00,
+    // x (120)
+    0x00, 0x00, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0x00,
+    // y (121)
+    0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0xFC,
+    // z (122)
+    0x00, 0x00, 0xFE, 0x0C, 0x18, 0x30, 0xFE, 0x00,
+    // { (123)
+    0x0E, 0x18, 0x18, 0x70, 0x18, 0x18, 0x0E, 0x00,
+    // | (124)
+    0x18, 0x18, 0x18, 0x00, 0x18, 0x18, 0x18, 0x00,
+    // } (125)
+    0x70, 0x18, 0x18, 0x0E, 0x18, 0x18, 0x70, 0x00,
+    // ~ (126)
+    0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+const CHAR_WIDTH: usize = 8;
+const CHAR_HEIGHT: usize = 8;
+const SCREEN_COLS: usize = 80;
+const SCREEN_ROWS: usize = 25;
+
+fn pixel_color(fg: u8, bg: u8, fmt: PixelFormat) -> (u8, u8, u8) {
+    // Simple 16-color VGA palette mapping
+    let fg_rgb = vga_color(fg);
+    let bg_rgb = vga_color(bg);
+    match fmt {
+        PixelFormat::Rgb => (fg_rgb.0, fg_rgb.1, fg_rgb.2),
+        PixelFormat::Bgr => (fg_rgb.2, fg_rgb.1, fg_rgb.0),
+        _ => (fg_rgb.0, fg_rgb.1, fg_rgb.2),
+    }
+}
+
+fn vga_color(c: u8) -> (u8, u8, u8) {
+    match c & 0x0F {
+        0x0 => (0, 0, 0),
+        0x1 => (0, 0, 170),
+        0x2 => (0, 170, 0),
+        0x3 => (0, 170, 170),
+        0x4 => (170, 0, 0),
+        0x5 => (170, 0, 170),
+        0x6 => (170, 85, 0),
+        0x7 => (170, 170, 170),
+        0x8 => (85, 85, 85),
+        0x9 => (85, 85, 255),
+        0xA => (85, 255, 85),
+        0xB => (85, 255, 255),
+        0xC => (255, 85, 85),
+        0xD => (255, 85, 255),
+        0xE => (255, 255, 85),
+        0xF => (255, 255, 255),
+        _ => (255, 255, 255),
+    }
+}
+
+fn draw_pixel(fb: &mut FramebufferState, x: usize, y: usize, r: u8, g: u8, b: u8) {
+    if x >= fb.width || y >= fb.height { return; }
+    let bpp = fb.bytes_per_pixel;
+    let offset = y * fb.stride * bpp + x * bpp;
+    unsafe {
+        let ptr = (fb.addr + offset as u64) as *mut u8;
+        *ptr.add(0) = b;
+        *ptr.add(1) = g;
+        *ptr.add(2) = r;
+    }
+}
+
+fn draw_char(fb: &mut FramebufferState, c: u8, row: usize, col: usize) {
+    if fb.addr == 0 { return; }
+    let (r, g, b) = pixel_color(fb.fg, fb.bg, fb.pixel_format);
+    let glyph_idx = if c >= 32 && c <= 126 { (c - 32) as usize } else { 0 };
+    let glyph = &FONT[glyph_idx * 8..glyph_idx * 8 + 8];
+    let base_x = col * CHAR_WIDTH;
+    let base_y = row * CHAR_HEIGHT;
+    for dy in 0..CHAR_HEIGHT {
+        let row_bits = glyph[dy];
+        for dx in 0..CHAR_WIDTH {
+            if (row_bits >> (7 - dx)) & 1 != 0 {
+                draw_pixel(fb, base_x + dx, base_y + dy, r, g, b);
+            } else {
+                draw_pixel(fb, base_x + dx, base_y + dy, vga_color(fb.bg).0, vga_color(fb.bg).1, vga_color(fb.bg).2);
+            }
+        }
+    }
+}
+
+pub fn init_framebuffer(addr: u64, width: usize, height: usize, bpp: usize, stride: usize, fmt: PixelFormat) {
+    let mut fb = FRAMEBUFFER.lock();
+    fb.addr = addr;
+    fb.width = width;
+    fb.height = height;
+    fb.bytes_per_pixel = bpp;
+    fb.stride = stride;
+    fb.pixel_format = fmt;
+    fb.row = 0;
+    fb.col = 0;
+    fb.fg = 0x0F;
+    fb.bg = 0x00;
+}
+
+pub fn vga_clear(_fg: u8, _bg: u8) {
+    let mut fb = FRAMEBUFFER.lock();
+    fb.row = 0;
+    fb.col = 0;
+    if fb.addr == 0 { return; }
+    let bg = fb.bg;
+    for y in 0..fb.height {
+        for x in 0..fb.width {
+            let (r, g, b) = vga_color(bg);
+            draw_pixel(&mut fb, x, y, r, g, b);
+        }
+    }
+}
+
+pub fn vga_write(s: &[u8], row: usize, fg: u8, bg: u8) {
+    let mut fb = FRAMEBUFFER.lock();
+    fb.fg = fg;
+    fb.bg = bg;
+    for (i, &b) in s.iter().enumerate().take(SCREEN_COLS) {
+        draw_char(&mut fb, b, row, i);
+    }
+}
+
+pub fn vga_putc(c: u8) {
+    let (row, col) = {
+        let fb = FRAMEBUFFER.lock();
+        (fb.row, fb.col)
+    };
+    match c {
+        b'\r' => { FRAMEBUFFER.lock().col = 0; }
+        b'\n' => {
+            let mut fb = FRAMEBUFFER.lock();
+            fb.col = 0;
+            if fb.row < SCREEN_ROWS - 1 { fb.row += 1; } else { scroll(&mut fb); }
+        }
+        0x08 => {
+            let (row, col) = {
+                let fb = FRAMEBUFFER.lock();
+                (fb.row, fb.col)
+            };
+             if col > 0 {
+                let mut fb = FRAMEBUFFER.lock();
+                fb.col = col - 1;
+                draw_char(&mut fb, b' ', row, col - 1);
+            }
+        }
+        b if b >= 0x20 => {
+            draw_char(&mut FRAMEBUFFER.lock(), c, row, col);
+            let mut fb = FRAMEBUFFER.lock();
+            fb.col += 1;
+            if fb.col >= SCREEN_COLS {
+                fb.col = 0;
+                if fb.row < SCREEN_ROWS - 1 { fb.row += 1; } else { scroll(&mut fb); }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scroll(fb: &mut FramebufferState) {
+    // Simple scroll: shift everything up by CHAR_HEIGHT pixels
+    if fb.addr == 0 { return; }
+    let shift = CHAR_HEIGHT;
+    for y in shift..fb.height {
+        for x in 0..fb.width {
+            let (r, g, b) = {
+                let bpp = fb.bytes_per_pixel;
+                let off = y * fb.stride * bpp + x * bpp;
+                unsafe {
+                    let ptr = (fb.addr + off as u64) as *const u8;
+                    (*ptr.add(2), *ptr.add(1), *ptr.add(0))
+                }
+            };
+            draw_pixel(fb, x, y - shift, r, g, b);
+        }
+    }
+    for y in (fb.height - shift)..fb.height {
+        let bg = fb.bg;
+        let (r, g, b) = vga_color(bg);
+        for x in 0..fb.width {
+            draw_pixel(fb, x, y, r, g, b);
+        }
+    }
+}
 
 pub fn outb(port: u16, val: u8) {
     unsafe { core::arch::asm!("out dx, al", in("dx") port, in("al") val); }
@@ -24,7 +422,6 @@ pub fn inw(port: u16) -> u16 {
 }
 
 pub fn reboot() -> ! {
-    // Exit QEMU via isa-debug-exit device (port 0xF4, needs -device flag)
     unsafe { core::arch::asm!("mov dx, 0xF4; mov al, 0x31; out dx, al", options(nostack, nomem)); }
     loop { unsafe { core::arch::asm!("hlt"); } }
 }
@@ -65,101 +462,12 @@ pub fn serial_read_port(port: u16) -> Option<u8> {
     if inb(port + 5) & 1 != 0 { Some(inb(port)) } else { None }
 }
 
-pub fn vga_putc(c: u8, row: usize, col: usize, fg: u8, bg: u8) {
-    let pos = (row * 80 + col) * 2;
-    unsafe {
-        VGA_ADDR.add(pos).write(c);
-        VGA_ADDR.add(pos + 1).write(bg << 4 | fg);
-    }
-}
-
-pub fn vga_write(s: &[u8], row: usize, fg: u8, bg: u8) {
-    for (i, &b) in s.iter().enumerate().take(80) {
-        vga_putc(b, row, i, fg, bg);
-    }
-}
-
-pub fn vga_clear(fg: u8, bg: u8) {
-    for row in 0..25 {
-        for col in 0..80 { vga_putc(b' ', row, col, fg, bg); }
-    }
-}
-
-#[allow(dead_code)]
-pub struct VgaWriter {
-    pub row: usize,
-    pub col: usize,
-    pub fg: u8,
-    pub bg: u8,
-    pub scroll_top: usize,
-}
-
-#[allow(dead_code)]
-impl VgaWriter {
-    pub fn new(scroll_top: usize, fg: u8, bg: u8) -> Self {
-        VgaWriter { row: scroll_top, col: 0, fg, bg, scroll_top }
-    }
-
-    pub fn write_byte(&mut self, c: u8) {
-        match c {
-            b'\r' => self.col = 0,
-            b'\n' => self.newline(),
-            0x08 => {
-                if self.col > 0 { self.col -= 1; self.put(b' '); }
-            }
-            b if b >= 0x20 => {
-                self.put(c);
-                self.col += 1;
-                if self.col >= 80 { self.newline(); }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn write_str(&mut self, s: &[u8]) {
-        for &b in s { self.write_byte(b); }
-    }
-
-    fn put(&self, c: u8) {
-        vga_putc(c, self.row, self.col, self.fg, self.bg);
-    }
-
-    fn newline(&mut self) {
-        self.col = 0;
-        if self.row < 24 {
-            self.row += 1;
-        } else {
-            self.scroll();
-        }
-    }
-
-    fn scroll(&mut self) {
-        for r in self.scroll_top..24 {
-            for c in 0..80 {
-                let src = ((r + 1) * 80 + c) * 2;
-                let dst = (r * 80 + c) * 2;
-                unsafe {
-                    VGA_ADDR.add(dst).write(VGA_ADDR.add(src).read());
-                    VGA_ADDR.add(dst + 1).write(VGA_ADDR.add(src + 1).read());
-                }
-            }
-        }
-        for c in 0..80 { vga_putc(b' ', 24, c, self.fg, self.bg); }
-    }
-}
-
-use spin::Mutex;
-
-pub static VGA_WRITER: Mutex<VgaWriter> = Mutex::new(VgaWriter {
-    row: 8, col: 0, fg: 0x0F, bg: 0x00, scroll_top: 8,
-});
-
 pub fn console_write(s: &[u8]) {
     serial_write(s);
-    VGA_WRITER.lock().write_str(s);
+    for &b in s { vga_putc(b); }
 }
 
 pub fn console_putc(c: u8) {
     serial_putc(c);
-    VGA_WRITER.lock().write_byte(c);
+    vga_putc(c);
 }

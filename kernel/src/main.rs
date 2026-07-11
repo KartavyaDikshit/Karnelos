@@ -6,7 +6,6 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use bootloader_api::BootInfo;
 
-mod generated;
 mod io;
 mod keyboard;
 mod interrupts;
@@ -66,6 +65,23 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     io::serial_init();
     io::serial_init_port(io::COM2);
+
+    // Initialize framebuffer from bootloader-provided info
+    if let Some(fb) = boot_info.framebuffer.as_ref() {
+        let info = fb.info();
+        io::init_framebuffer(
+            fb.buffer().as_ptr() as u64,
+            info.width,
+            info.height,
+            info.bytes_per_pixel,
+            info.stride,
+            info.pixel_format,
+        );
+        io::debug_write(b"Framebuffer initialized\n");
+    } else {
+        io::debug_write(b"No framebuffer available\n");
+    }
+
     io::vga_clear(0x0F, 0x00);
     banner_vga();
     banner_serial();

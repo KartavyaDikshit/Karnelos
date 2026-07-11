@@ -1,6 +1,6 @@
 .PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon generate clean daemon-build userspace userspace-test userspace-clean
 
-KERNEL_IMG = kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin
+KERNEL_IMG = kernel/target/x86_64-karnelos/debug/bootimage-karnelos-kernel.bin
 STORAGE_IMG = storage.img
 
 all: build
@@ -66,7 +66,7 @@ USERSRC = userspace
 USERSRC_BIN = $(USERSRC)/target/karnelos-user/debug/karnelos-user
 
 userspace:
-	cd $(USERSRC) && cargo build -Z build-std=core,alloc --target karnelos-user.json
+	cd $(USERSRC) && cargo +nightly-2025-07-08 build -Z build-std=core,alloc --target karnelos-user.json
 
 # Inspect the produced ELF (should be PIE with no relocations).
 userspace-test: userspace
