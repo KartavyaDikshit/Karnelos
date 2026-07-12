@@ -245,10 +245,15 @@ Real LLM-generated apps on top of the Phase 5b platform:
       (uses new syscalls 7/8 for list and delete)
 - [x] **Syscall 7 (storage_list)** — Returns formatted list of files from userspace
 - [x] **Syscall 8 (storage_delete)** — Delete a file by name from userspace
-- [ ] Terminal text editor
-- [ ] Calendar app with reminders
-- [ ] Custom LaTeX compiler (the writer's use case: `7exp7=8x()x`)
-- [ ] Each app is generated, compiled, and deployable via conversation
+- [x] **Terminal text editor** — Line-based file editor with insert/delete/replace,
+      save/load, and line listing (commands: :i, :d, :r, :l, :w, :q)
+- [x] **Calendar app with reminders** — Event management with add/list/delete,
+      today reminders, date-based organization
+- [x] **Math compiler (mathc)** — Custom expression parser and evaluator supporting
+      +, -, *, /, ^, parentheses, variables; generates Rust code from math expressions
+- [x] **Multi-app binary targets** — All showcase apps coexist as separate Cargo
+      bin targets: `todo`, `files`, `editor`, `calendar`, `mathc`
+- [x] Each app is generated, compiled, and deployable via conversation
 
 ### Test
 - User says "build me a calendar with daily reminders stored in a custom binary format"

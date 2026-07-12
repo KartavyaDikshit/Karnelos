@@ -69,6 +69,10 @@ USERSRC_BIN = $(USERSRC)/target/karnelos-user/debug/karnelos-user
 userspace:
 	cd $(USERSRC) && cargo +nightly-2025-07-08 build -Z build-std=core,alloc --target karnelos-user.json
 
+# Build all individual app bins
+userspace-bins:
+	cd $(USERSRC) && cargo +nightly-2025-07-08 build -Z build-std=core,alloc --target karnelos-user.json --bins
+
 # Inspect the produced ELF (should be PIE with no relocations).
 userspace-test: userspace
 	@echo "--- ELF header ---"; readelf -h $(USERSRC_BIN) | grep -E "Type|Entry"

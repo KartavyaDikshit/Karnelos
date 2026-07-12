@@ -12,3 +12,27 @@ opt-level = 2
 [profile.release]
 panic = "abort"
 opt-level = 3
+
+[[bin]]
+name = "karnelos-user"
+path = "src/main.rs"
+
+[[bin]]
+name = "todo"
+path = "src/bin/todo.rs"
+
+[[bin]]
+name = "files"
+path = "src/bin/files.rs"
+
+[[bin]]
+name = "editor"
+path = "src/bin/editor.rs"
+
+[[bin]]
+name = "calendar"
+path = "src/bin/calendar.rs"
+
+[[bin]]
+name = "mathc"
+path = "src/bin/mathc.rs"
