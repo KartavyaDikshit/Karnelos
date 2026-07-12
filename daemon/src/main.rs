@@ -60,24 +60,68 @@ fn call_llm(prompt: &str) -> Result<String> {
     Ok(resp.json::<OllamaResponse>()?.response)
 }
 
-fn generate_and_build(prompt: &str) -> Result<Vec<u8>> {
-    let system = concat!(
-        "You generate Rust code for a Karnelos OS ring-3 userspace app (x86-64, no_std).\n",
-        "The app runs in ring 3 with its own page tables.\n",
-        "Available API (imported via `use syscall::*`):\n",
-        "  print(s: &str)  - write a string to the console\n",
-        "  exit(code: u64) - exit the program\n",
-        "  write_bytes(s: &[u8]) - write bytes to console\n",
-        "RULES:\n",
-        "- Output ONLY the Rust statements that go inside main(), one per line\n",
-        "- No markdown, no code fences, no fn declaration, no closing brace\n",
-        "- Use print(\"...\") for output, with \\r\\n for newlines\n",
-        "- You can use alloc::vec::Vec, alloc::format!, loops, etc.\n",
-        "EXAMPLE for 'print hello': print(\"Hello\\r\\n\");\n",
-        "EXAMPLE for 'count to 5': for i in 1..=5u8 { print(&alloc::format!(\"count: {}\\r\\n\", i)); }\n"
-    );
+fn load_system_profile() -> String {
+    let profile_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .join("storage.img");
+    // We can't easily read from the raw disk image. For now, try reading from a
+    // known host-side location or just return empty.
+    // In practice, the kernel writes this file; a host-side tool could extract it.
+    String::new()
+}
 
-    let full_prompt = format!("{}\n\nRequest: {}", system, prompt);
+fn build_system_prompt(prompt: &str) -> String {
+    let profile = load_system_profile();
+    let profile_section = if profile.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "System performance profile:\n{}\n\n",
+            profile
+        )
+    };
+
+    let system = format!(
+        "{}You generate Rust code for a Karnelos OS ring-3 userspace app (x86-64, no_std).\n\
+        The app runs in ring 3 with its own page tables.\n\
+        Available API (imported via `use syscall::*`):\n\
+        \n\
+        I/O Functions:\n\
+        \x20 print(s: &str)       - write a string to the console\n\
+        \x20 write_bytes(s: &[u8]) - write raw bytes to console\n\
+        \x20 exit(code: u64)      - exit the program\n\
+        \n\
+        Storage Functions:\n\
+        \x20 storage_read(name, buf, len) -> bytes read (syscall 4)\n\
+        \x20 storage_write(name, data, len) -> bytes written (syscall 5)\n\
+        \x20 storage_list(buf, len) -> bytes written (syscall 7)\n\
+        \x20 storage_delete(name) -> bool (syscall 8)\n\
+        \n\
+        Input Functions:\n\
+        \x20 getchar() -> u8       - read a single key press (syscall 6)\n\
+        \n\
+        System Functions:\n\
+        \x20 get_metrics(buf, len, clear) -> bytes written (syscall 9)\n\
+        \n\
+        RULES:\n\
+        - Output ONLY the Rust statements that go inside main(), one per line\n\
+        - No markdown, no code fences, no fn declaration, no closing brace\n\
+        - Use print(\"...\") for output, with \\r\\n for newlines\n\
+        - You can use alloc::vec::Vec, alloc::format!, loops, storage API, etc.\n\
+        \n\
+        EXAMPLES:\n\
+        'print hello': print(\"Hello\\r\\n\");\n\
+        'count to 5': for i in 1..=5u8 {{ print(&alloc::format!(\"count: {}\\r\\n\", i)); }}\n\
+        'write then read file': storage_write(b\"test\", b\"hello\"); let d = storage_read(b\"test\", &mut buf, 256);\n\
+        \n\
+        Request: {}",
+        profile_section, prompt
+    );
+    system
+}
+
+fn generate_and_build(prompt: &str) -> Result<Vec<u8>> {
+    let full_prompt = build_system_prompt(prompt);
 
     eprintln!("[daemon] Requesting LLM for: {}", prompt);
 
@@ -116,7 +160,7 @@ fn generate_and_build(prompt: &str) -> Result<Vec<u8>> {
             let home = std::env::var("HOME").unwrap_or_default();
             let path = format!("{}/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", home);
             let status = Command::new("make")
-                .args(["-C", "/Users/kartavyadikshit/Projects/Karnelos", "userspace"])
+                .args(["-C", "/Users/kartavyadikshit/Projects/Karnelos", "userspace-bins"])
                 .env_clear()
                 .env("HOME", &home)
                 .env("PATH", &path)

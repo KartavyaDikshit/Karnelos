@@ -101,6 +101,38 @@ pub fn record_p4_clone() {
     METRICS.lock().p4_clones += 1;
 }
 
+pub fn format_metrics_profile() -> alloc::vec::Vec<u8> {
+    let m = METRICS.lock();
+    alloc::format!(
+        "# Karnelos System Profile\n\
+         # Generated at boot. Used by the LLM for adaptive code generation.\n\
+         boot_time_ns={}\n\
+         syscall_count={}\n\
+         syscall_avg_ns={}\n\
+         ring3_transitions={}\n\
+         elfs_loaded={}\n\
+         storage_reads={}\n\
+         storage_writes={}\n\
+         com2_sent={}\n\
+         com2_recv={}\n\
+         p4_clones={}\n\
+         allocs={}\n\
+         deallocs={}\n",
+        m.boot_time_ns,
+        m.syscall_count,
+        if m.syscall_count > 0 { m.syscall_time_ns / m.syscall_count } else { 0 },
+        m.ring3_transitions,
+        m.elfs_loaded,
+        m.storage_reads,
+        m.storage_writes,
+        m.com2_bytes_sent,
+        m.com2_bytes_recv,
+        m.p4_clones,
+        m.alloc_count,
+        m.dealloc_count,
+    ).into_bytes()
+}
+
 pub fn format_metrics(clear: bool) -> alloc::vec::Vec<u8> {
     let m = METRICS.lock();
     let s = alloc::format!(

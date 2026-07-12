@@ -104,6 +104,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     memory::init_heap();
     io::debug_write(b"Initializing storage (ATA/IDE)\n");
     ata::init();
+    // Check for ephemeral boot mode (reformat storage)
+    if ata::is_present() && filesystem::check_bootmode_ephemeral() {
+        io::console_write(b"Ephemeral boot: reformatting storage...\r\n");
+        filesystem::format();
+        filesystem::clear_bootmode_ephemeral();
+    }
     io::debug_write(b"Initializing userspace\n");
     process::init();
 
@@ -115,6 +121,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Record boot time
     let boot_ns = crate::metrics::ns_from_tsc(crate::metrics::read_tsc() - _boot_tsc);
     crate::metrics::METRICS.lock().boot_time_ns = boot_ns;
+
+    // Auto-save boot profile to storage for the feedback loop
+    if ata::is_present() {
+        let profile = crate::metrics::format_metrics_profile();
+        crate::filesystem::write_file(b"system_profile", &profile);
+    }
 
     let s = shell::Shell::new(b"karnelos> ");
     unsafe { SHELL = Some(s); }

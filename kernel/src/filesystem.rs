@@ -42,6 +42,33 @@ fn bitmap_sector_for(idx: u32) -> u32 {
     BITMAP_START + (idx / (SECTOR_SIZE as u32 * 8))
 }
 
+pub fn set_bootmode_ephemeral() {
+    if !is_formatted() {
+        format();
+    }
+    let mut sb = [0u8; SECTOR_SIZE];
+    ata::read_block(0, &mut sb);
+    sb[32] = 1; // ephemeral flag
+    ata::write_block(0, &sb);
+    io::console_write(b"bootmode: ephemeral enabled (next boot will reformat)\r\n");
+}
+
+pub fn check_bootmode_ephemeral() -> bool {
+    if !is_formatted() {
+        return false;
+    }
+    let mut sb = [0u8; SECTOR_SIZE];
+    ata::read_block(0, &mut sb);
+    sb[32] == 1
+}
+
+pub fn clear_bootmode_ephemeral() {
+    let mut sb = [0u8; SECTOR_SIZE];
+    ata::read_block(0, &mut sb);
+    sb[32] = 0;
+    ata::write_block(0, &sb);
+}
+
 pub fn is_formatted() -> bool {
     if !ata::is_present() {
         return false;

@@ -170,6 +170,7 @@ impl Shell {
             b"echo" => cmd_echo(args),
             b"info" => cmd_info(),
             b"perf" | b"metrics" => cmd_perf(args),
+            b"bootmode" => cmd_bootmode(args),
             b"gen" | b"generate" => self.cmd_gen(args),
             b"run" => self.cmd_run(),
             b"app" => self.cmd_app(args),
@@ -293,6 +294,7 @@ fn cmd_help() {
     writeln(b"  perf|metrics  - Show performance metrics");
     writeln(b"  perf save [n] - Save metrics to storage");
     writeln(b"  perf load [n] - Load saved metrics from storage");
+    writeln(b"  perf profile  - Generate LLM-friendly system profile");
     writeln(b"  perf clear    - Reset metrics");
     writeln(b"  memory|mem  - Show memory info");
     writeln(b"  clear|cls   - Clear screen");
@@ -300,6 +302,7 @@ fn cmd_help() {
     writeln(b"  info        - System information");
     writeln(b"  gen|generate <prompt> - Generate a ring-3 app via LLM (no reboot)");
     writeln(b"  run         - Run the last generated app");
+    writeln(b"  bootmode    - Show/set boot mode (normal|ephemeral)");
     writeln(b"  app save <name> - Save last app to persistent storage");
     writeln(b"  app run <name>  - Run a saved app from storage");
     writeln(b"  app ls          - List saved apps in storage");
@@ -311,7 +314,11 @@ fn cmd_help() {
 
 fn cmd_perf(args: &[u8]) {
     let args_trimmed = args.trim_ascii();
-    if args_trimmed == b"clear" || args_trimmed == b"reset" {
+    if args_trimmed == b"profile" {
+        let profile = crate::metrics::format_metrics_profile();
+        crate::filesystem::write_file(b"system_profile", &profile);
+        io::console_write(b"System profile written to 'system_profile'\r\n");
+    } else if args_trimmed == b"clear" || args_trimmed == b"reset" {
         crate::metrics::format_metrics(true);
         io::console_write(b"Metrics cleared\r\n");
     } else if args_trimmed == b"save" || args_trimmed.starts_with(b"save ") {
@@ -384,8 +391,26 @@ fn cmd_user() {
 }
 
 fn cmd_reboot() {
-    writeln(b"Rebooting...");
+    writeln(b"Rebooting...\n");
     io::reboot();
+}
+
+fn cmd_bootmode(args: &[u8]) {
+    let t = args.trim_ascii();
+    if t == b"ephemeral" {
+        crate::filesystem::set_bootmode_ephemeral();
+    } else if t == b"normal" {
+        crate::filesystem::clear_bootmode_ephemeral();
+        writeln(b"bootmode: normal (next boot will preserve data)");
+    } else if t.is_empty() || t == b"status" {
+        if crate::filesystem::check_bootmode_ephemeral() {
+            writeln(b"Boot mode: EPHEMERAL (data reformatted every boot)");
+        } else {
+            writeln(b"Boot mode: NORMAL (data preserved across boots)");
+        }
+    } else {
+        writeln(b"Usage: bootmode <ephemeral|normal|status>");
+    }
 }
 
 fn cmd_storage(args: &[u8]) {

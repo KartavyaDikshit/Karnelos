@@ -278,9 +278,14 @@ Real LLM-generated apps on top of the Phase 5b platform:
 - [x] **`perf` shell command**: show, clear, save/load metrics to/from storage
 - [x] Integration: metrics recorded on syscalls, ring-3 transitions, ELF loads,
       storage ops, P4 clones, COM2 traffic
-- [ ] Feedback loop: metrics → user context → LLM regeneration
+- [x] **System profile** (`system_profile` file): key-value metrics saved to
+      storage on every boot for LLM consumption; `perf profile` command regenerates it
+- [x] **Daemon prompt updated**: system prompt now documents all 9 syscalls
+      (including storage_list, storage_delete, get_metrics); builds all app bins
+- [x] **Ephemeral boot mode**: `bootmode ephemeral` setting reformats storage
+      on next boot; `bootmode normal` restores persistent mode
+- [ ] Feedback loop: metrics → user context → LLM regeneration (daemon reads profile)
 - [ ] Boot-time generation (kernel regenerates optimal components from user profile)
-- [ ] Ephemeral boot mode (fresh OS every boot, only user data persists)
 
 ### Test
 - Run `perf` in the shell → shows boot time, syscall stats, ring-3 transitions
