@@ -13,6 +13,8 @@
 //!   4  storage_read(name_ptr, buf_ptr, len) -> bytes read
 //!   5  storage_write(name_ptr, buf_ptr, len) -> bytes written
 //!   6  getchar() -> char or 0 if none
+//!   7  storage_list(buf_ptr, len) -> bytes written (formatted list)
+//!   8  storage_delete(name_ptr) -> 0 on success, 1 on failure
 
 use core::arch::asm;
 

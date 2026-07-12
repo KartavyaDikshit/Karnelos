@@ -133,6 +133,14 @@ fn alloc_contiguous(count: u32) -> Option<u32> {
     None
 }
 
+pub fn read_dir_raw() -> [u8; DIR_SECTORS as usize * SECTOR_SIZE] {
+    read_dir()
+}
+
+pub fn rd_u32_from_dir(dir: &[u8], off: usize) -> u32 {
+    rd_u32(dir, off)
+}
+
 fn read_dir() -> [u8; DIR_SECTORS as usize * SECTOR_SIZE] {
     let mut dir = [0u8; DIR_SECTORS as usize * SECTOR_SIZE];
     for s in 0..DIR_SECTORS {
@@ -242,6 +250,29 @@ pub fn read_file(name: &[u8], out: &mut [u8]) -> usize {
         }
     }
     0
+}
+
+pub fn delete_file(name: &[u8]) -> bool {
+    if !is_formatted() {
+        return false;
+    }
+    let mut dir = read_dir();
+    let name_len = name.len().min(56);
+    for i in 0..DIR_ENTRIES {
+        let off = i * DIR_ENTRY_SIZE;
+        if dir[off] != 0 && &dir[off..off + name_len] == name {
+            let old_start = rd_u32(&dir, off + 60);
+            let old_size = rd_u32(&dir, off + 56);
+            let old_sects = (old_size + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
+            for j in 0..old_sects {
+                bitmap_clear(old_start + j);
+            }
+            for k in 0..56 { dir[off + k] = 0; }
+            write_dir(&dir);
+            return true;
+        }
+    }
+    false
 }
 
 pub fn list() {

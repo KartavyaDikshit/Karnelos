@@ -1,3 +1,4 @@
+extern crate alloc;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 use x86_64::PhysAddr;
 use x86_64::structures::paging::PhysFrame;
@@ -273,6 +274,42 @@ extern "C" fn syscall_handler(
                 Some(ch) => ch as u64,
                 None => 0,
             }
+        }
+        // storage_list(buf, len) -> bytes written (formatted list of files)
+        7 => {
+            let buf = a as *mut u8;
+            let max = b as usize;
+            let mut pos = 0usize;
+            if filesystem::is_formatted() {
+                let dir = filesystem::read_dir_raw();
+                for i in 0..64 {
+                    let off = i * 64;
+                    if dir[off] != 0 {
+                        let name_end = dir[off..off+56].iter().position(|&b| b == 0).unwrap_or(56);
+                        let size = filesystem::rd_u32_from_dir(&dir, off + 56);
+                        let line = alloc::format!("  {} ({} bytes)\n",
+                            core::str::from_utf8(&dir[off..off+name_end]).unwrap_or("?"), size);
+                        let b = line.as_bytes();
+                        let copy = b.len().min(max.saturating_sub(pos));
+                        if copy > 0 {
+                            unsafe { core::ptr::copy_nonoverlapping(b.as_ptr(), buf.add(pos), copy); }
+                            pos += copy;
+                        }
+                    }
+                }
+            }
+            if pos == 0 {
+                let empty = b"(empty)\n";
+                let copy = empty.len().min(max);
+                unsafe { core::ptr::copy_nonoverlapping(empty.as_ptr(), buf, copy); }
+                pos = copy;
+            }
+            pos as u64
+        }
+        // storage_delete(name) -> 0 on success, 1 on failure
+        8 => {
+            let (name, nl) = read_name(a as *const u8);
+            if filesystem::delete_file(&name[..nl]) { 0 } else { 1 }
         }
         42 => {
             io::console_write(b"Hello from ring 3!\r\n");

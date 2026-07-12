@@ -258,7 +258,10 @@ impl Shell {
                     }
                 }
             }
-            _ => io::console_write(b"Usage: app save <name> | app run <name>\r\n"),
+            b"ls" | b"list" => {
+                crate::filesystem::list();
+            }
+            _ => io::console_write(b"Usage: app save <name> | app run <name> | app ls\r\n"),
         }
     }
 }
@@ -293,6 +296,7 @@ fn cmd_help() {
     writeln(b"  run         - Run the last generated app");
     writeln(b"  app save <name> - Save last app to persistent storage");
     writeln(b"  app run <name>  - Run a saved app from storage");
+    writeln(b"  app ls          - List saved apps in storage");
     writeln(b"  user        - Test ring 3 user execution");
     writeln(b"  reboot      - Reboot the system");
     writeln(b"  test-heap   - Run heap allocation test");

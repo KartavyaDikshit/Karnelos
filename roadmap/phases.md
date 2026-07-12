@@ -232,18 +232,22 @@ build/test work here is verifiable **without** a running LLM.
 
 ---
 
-## Phase 5c: Generated Applications — Showcase Apps (future)
+## Phase 5c: Generated Applications — Showcase Apps
 
-**Status: Not started**
+**Status: In progress**
 
 Real LLM-generated apps on top of the Phase 5b platform:
 
 ### Deliverables
-- [ ] Calendar app with reminders
-- [ ] Todo app with categories (exercises storage syscalls 4/5)
-- [ ] Custom LaTeX compiler (the writer's use case: `7exp7=8x()x`)
+- [x] **Todo app with categories** — Full CLI todo app with add/list/done/delete
+      commands, category filtering, persistent storage via syscalls 4/5
+- [x] **File manager** — List, read, write, and delete files on persistent storage
+      (uses new syscalls 7/8 for list and delete)
+- [x] **Syscall 7 (storage_list)** — Returns formatted list of files from userspace
+- [x] **Syscall 8 (storage_delete)** — Delete a file by name from userspace
 - [ ] Terminal text editor
-- [ ] File manager
+- [ ] Calendar app with reminders
+- [ ] Custom LaTeX compiler (the writer's use case: `7exp7=8x()x`)
 - [ ] Each app is generated, compiled, and deployable via conversation
 
 ### Test
@@ -327,6 +331,6 @@ Real LLM-generated apps on top of the Phase 5b platform:
 | 4 - Persistent Storage | 1-2 weeks | Phase 1 | ✅ Complete |
 | 5 - ELF loader + process model | 2-3 weeks | Phase 3a, 4 | ✅ Complete |
 | 5b - App persistence + demos | ~1 week | Phase 5 | ✅ Complete |
-| 5c - Showcase apps | 3-4 weeks | Phase 5b | ❌ Not started |
+| 5c - Showcase apps | 3-4 weeks | Phase 5b | 🔶 In progress |
 | 6 - Self-Improving | 3-4 weeks | Phase 5b | ❌ Not started |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |
