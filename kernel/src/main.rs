@@ -15,6 +15,7 @@ mod loader;
 mod process;
 mod ata;
 mod filesystem;
+mod metrics;
 
 pub static mut SHELL: Option<shell::Shell> = None;
 
@@ -69,6 +70,7 @@ pub static CONFIG: bootloader_api::BootloaderConfig = {
 bootloader_api::entry_point!(kernel_main, config = &CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    let _boot_tsc = crate::metrics::read_tsc();
     io::debug_write(b"Karnelos booting...\n");
 
     io::serial_init();
@@ -109,6 +111,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     keyboard::init();
 
     io::debug_write(b"Starting shell\n");
+
+    // Record boot time
+    let boot_ns = crate::metrics::ns_from_tsc(crate::metrics::read_tsc() - _boot_tsc);
+    crate::metrics::METRICS.lock().boot_time_ns = boot_ns;
 
     let s = shell::Shell::new(b"karnelos> ");
     unsafe { SHELL = Some(s); }

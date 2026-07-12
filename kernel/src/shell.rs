@@ -74,6 +74,7 @@ impl Shell {
                     self.size_len = 0;
                     self.ack_counter = 0;
                     // First ACK: tells the daemon it may start streaming the binary.
+                    crate::metrics::record_com2_sent(1);
                     io::serial_putc_port(io::COM2, ELF_ACK);
                 } else if b >= b'0' && b <= b'9' {
                     if self.size_len < 9 {
@@ -168,6 +169,7 @@ impl Shell {
             b"clear" | b"cls" => cmd_clear(),
             b"echo" => cmd_echo(args),
             b"info" => cmd_info(),
+            b"perf" | b"metrics" => cmd_perf(args),
             b"gen" | b"generate" => self.cmd_gen(args),
             b"run" => self.cmd_run(),
             b"app" => self.cmd_app(args),
@@ -288,6 +290,10 @@ fn writeln(s: &[u8]) {
 fn cmd_help() {
     writeln(b"Available commands:");
     writeln(b"  help        - Show this help");
+    writeln(b"  perf|metrics  - Show performance metrics");
+    writeln(b"  perf save [n] - Save metrics to storage");
+    writeln(b"  perf load [n] - Load saved metrics from storage");
+    writeln(b"  perf clear    - Reset metrics");
     writeln(b"  memory|mem  - Show memory info");
     writeln(b"  clear|cls   - Clear screen");
     writeln(b"  echo <text> - Echo text");
@@ -301,6 +307,32 @@ fn cmd_help() {
     writeln(b"  reboot      - Reboot the system");
     writeln(b"  test-heap   - Run heap allocation test");
     writeln(b"  storage <cmd> - Persistent storage (format|ls|write|read|info)");
+}
+
+fn cmd_perf(args: &[u8]) {
+    let args_trimmed = args.trim_ascii();
+    if args_trimmed == b"clear" || args_trimmed == b"reset" {
+        crate::metrics::format_metrics(true);
+        io::console_write(b"Metrics cleared\r\n");
+    } else if args_trimmed == b"save" || args_trimmed.starts_with(b"save ") {
+        let name = if args_trimmed.len() > 5 { args_trimmed[5..].trim_ascii() } else { b"perf_log" };
+        let data = crate::metrics::format_metrics(false);
+        crate::filesystem::write_file(name, &data);
+    } else if args_trimmed == b"load" || args_trimmed.starts_with(b"load ") {
+        let name = if args_trimmed.len() > 5 { args_trimmed[5..].trim_ascii() } else { b"perf_log" };
+        let mut buf = [0u8; 4096];
+        let n = crate::filesystem::read_file(name, &mut buf);
+        if n > 0 {
+            io::console_write(b"--- Saved Metrics ---\r\n");
+            io::console_write(&buf[..n]);
+            io::console_write(b"---\r\n");
+        } else {
+            io::console_write(b"No saved metrics found\r\n");
+        }
+    } else {
+        let data = crate::metrics::format_metrics(false);
+        io::console_write(&data);
+    }
 }
 
 fn cmd_memory() {

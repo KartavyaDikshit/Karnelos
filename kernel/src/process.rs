@@ -195,6 +195,7 @@ unsafe fn enter_ring3(entry: u64, sel: &Selectors, mut code_frames: Vec<usize>, 
         frames: code_frames,
     });
 
+    crate::metrics::record_ring3_entry();
     io::console_write(b"Jumping to ring 3...\r\n");
 
     core::arch::asm!(
@@ -222,10 +223,12 @@ unsafe fn enter_ring3(entry: u64, sel: &Selectors, mut code_frames: Vec<usize>, 
 
 /// Run a previously loaded ELF image as a ring-3 process.
 pub fn run_elf(elf: &[u8]) -> Result<(), &'static str> {
+    crate::metrics::record_elf_loaded();
     let sel = GDT_SEL.lock();
     let sel = sel.as_ref().expect("Userspace not initialized");
 
     let (p4_idx, kernel_p4_phys) = switch_to_new_p4();
+    crate::metrics::record_p4_clone();
 
     let mut frames = Vec::new();
     let loaded = loader::load_elf(elf, &mut frames)?;

@@ -471,3 +471,20 @@ pub fn console_putc(c: u8) {
     serial_putc(c);
     vga_putc(c);
 }
+
+static CPU_FREQ_KHZ: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+pub fn cpu_freq_khz() -> u64 {
+    let cached = CPU_FREQ_KHZ.load(core::sync::atomic::Ordering::Relaxed);
+    if cached != 0 { return cached; }
+    // Calibrate by measuring RDTSC over a known serial write delay.
+    let start = unsafe { core::arch::x86_64::_rdtsc() };
+    for _ in 0..1000 { unsafe { core::arch::asm!("nop"); } }
+    let end = unsafe { core::arch::x86_64::_rdtsc() };
+    let ticks = end - start;
+    // Rough: ~3 cycles per nop on modern CPUs, 1000 nops => 3000 cycles
+    // But we're in QEMU, so just use a sane default.
+    let freq = if ticks > 1000 { ticks * 2_000_000 / 1000 } else { 2_200_000 };
+    CPU_FREQ_KHZ.store(freq, core::sync::atomic::Ordering::Relaxed);
+    freq
+}

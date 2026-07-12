@@ -191,7 +191,8 @@ extern "C" fn syscall_handler(
     _d: u64,
     _e: u64,
 ) -> u64 {
-    match num {
+    let _start_tsc = crate::metrics::read_tsc();
+    let _result = match num {
         // exit(code)
         0 => {
             let ctx = process::EXIT_CTX.lock().take();
@@ -311,6 +312,16 @@ extern "C" fn syscall_handler(
             let (name, nl) = read_name(a as *const u8);
             if filesystem::delete_file(&name[..nl]) { 0 } else { 1 }
         }
+        // get_metrics(buf, len, clear) -> bytes written
+        9 => {
+            let buf = a as *mut u8;
+            let max = b as usize;
+            let clear = c != 0;
+            let data = crate::metrics::format_metrics(clear);
+            let n = data.len().min(max);
+            unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), buf, n); }
+            n as u64
+        }
         42 => {
             io::console_write(b"Hello from ring 3!\r\n");
             0
@@ -325,7 +336,13 @@ extern "C" fn syscall_handler(
             io::console_write(b"\r\n");
             0
         }
+    };
+    crate::metrics::record_syscall(_start_tsc);
+    if num == 4 || num == 5 {
+        if num == 4 { crate::metrics::record_storage_read(); }
+        else { crate::metrics::record_storage_write(); }
     }
+    _result
 }
 
 /// Read a NUL-terminated name from a user pointer (max 56 bytes).

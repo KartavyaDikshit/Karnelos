@@ -266,15 +266,25 @@ Real LLM-generated apps on top of the Phase 5b platform:
 
 ## Phase 6: Self-Improving OS
 
-**Status: Not started**
+**Status: In progress**
 
 ### Deliverables
-- [ ] Performance monitoring (execution cycles, cache misses, alloc patterns)
+- [x] **Performance metrics module** (`metrics.rs`): tracks syscall count/time,
+      ring-3 transitions/time, ELFs loaded, storage operations, COM2 traffic,
+      P4 clones, boot time
+- [x] **Syscall 9 (get_metrics)**: retrieve formatted metrics from userspace
+- [x] **Perf dashboard app** (`userspace/src/bin/perf.rs`): displays metrics
+      from userspace via syscall 9, supports showing/clearing
+- [x] **`perf` shell command**: show, clear, save/load metrics to/from storage
+- [x] Integration: metrics recorded on syscalls, ring-3 transitions, ELF loads,
+      storage ops, P4 clones, COM2 traffic
 - [ ] Feedback loop: metrics → user context → LLM regeneration
 - [ ] Boot-time generation (kernel regenerates optimal components from user profile)
 - [ ] Ephemeral boot mode (fresh OS every boot, only user data persists)
 
 ### Test
+- Run `perf` in the shell → shows boot time, syscall stats, ring-3 transitions
+- Run `perf save` → metrics persisted to storage, `perf load` retrieves them
 - Run the same task twice → second run uses cached/better code
 - Boot once, create a workflow, reboot → LLM regenerates optimal components
 - User says "optimize the scheduler for my compilation-heavy workload"
@@ -337,5 +347,5 @@ Real LLM-generated apps on top of the Phase 5b platform:
 | 5 - ELF loader + process model | 2-3 weeks | Phase 3a, 4 | ✅ Complete |
 | 5b - App persistence + demos | ~1 week | Phase 5 | ✅ Complete |
 | 5c - Showcase apps | 3-4 weeks | Phase 5b | 🔶 In progress |
-| 6 - Self-Improving | 3-4 weeks | Phase 5b | ❌ Not started |
+| 6 - Self-Improving | 3-4 weeks | Phase 5b | 🔶 In progress |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |

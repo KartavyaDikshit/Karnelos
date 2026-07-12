@@ -36,3 +36,7 @@ path = "src/bin/calendar.rs"
 [[bin]]
 name = "mathc"
 path = "src/bin/mathc.rs"
+
+[[bin]]
+name = "perf"
+path = "src/bin/perf.rs"
