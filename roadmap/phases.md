@@ -284,8 +284,12 @@ Real LLM-generated apps on top of the Phase 5b platform:
       (including storage_list, storage_delete, get_metrics); builds all app bins
 - [x] **Ephemeral boot mode**: `bootmode ephemeral` setting reformats storage
       on next boot; `bootmode normal` restores persistent mode
-- [ ] Feedback loop: metrics → user context → LLM regeneration (daemon reads profile)
-- [ ] Boot-time generation (kernel regenerates optimal components from user profile)
+- [x] **Feedback loop**: kernel uploads `system_profile` to daemon on every boot
+      via `KARNELOS_PROFILE:` COM2 protocol; daemon stores profile and includes
+      it in subsequent LLM code generation prompts for hardware-aware optimization
+- [x] **Boot-time generation**: kernel auto-sends profile to daemon during boot
+      sequence; daemon has the context ready for the first `gen` command
+- [x] **`perf upload` shell command**: manually re-upload profile to daemon
 
 ### Test
 - Run `perf` in the shell → shows boot time, syscall stats, ring-3 transitions

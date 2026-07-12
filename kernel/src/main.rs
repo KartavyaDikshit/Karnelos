@@ -127,6 +127,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let profile = crate::metrics::format_metrics_profile();
         crate::filesystem::write_file(b"system_profile", &profile);
     }
+    // Auto-upload profile to daemon if connected
+    let profile = crate::metrics::format_metrics_profile();
+    io::serial_write_port(io::COM2, b"KARNELOS_PROFILE:");
+    for &b in &profile {
+        if b == b'\n' { io::serial_putc_port(io::COM2, b' '); }
+        else if b != b'\r' { io::serial_putc_port(io::COM2, b); }
+    }
+    io::serial_write_port(io::COM2, b"\n");
 
     let s = shell::Shell::new(b"karnelos> ");
     unsafe { SHELL = Some(s); }

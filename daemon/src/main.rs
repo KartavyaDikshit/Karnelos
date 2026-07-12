@@ -60,14 +60,17 @@ fn call_llm(prompt: &str) -> Result<String> {
     Ok(resp.json::<OllamaResponse>()?.response)
 }
 
+static SYSTEM_PROFILE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
 fn load_system_profile() -> String {
-    let profile_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .join("storage.img");
-    // We can't easily read from the raw disk image. For now, try reading from a
-    // known host-side location or just return empty.
-    // In practice, the kernel writes this file; a host-side tool could extract it.
-    String::new()
+    SYSTEM_PROFILE.lock().unwrap().clone()
+}
+
+fn store_system_profile(data: &str) {
+    let mut profile = SYSTEM_PROFILE.lock().unwrap();
+    profile.clear();
+    profile.push_str(data);
+    eprintln!("[daemon] System profile updated ({} bytes)", data.len());
 }
 
 fn build_system_prompt(prompt: &str) -> String {
@@ -76,7 +79,8 @@ fn build_system_prompt(prompt: &str) -> String {
         String::new()
     } else {
         format!(
-            "System performance profile:\n{}\n\n",
+            "System performance profile (use to optimize code for this hardware):\n\
+            {}\n\n",
             profile
         )
     };
@@ -212,7 +216,11 @@ fn handle_connection(mut stream: TcpStream) -> Result<()> {
         let trimmed = line.trim();
         eprintln!("[daemon] Received: {}", trimmed);
 
-        if let Some(prompt) = trimmed.strip_prefix("KARNELOS_GEN:") {
+        if let Some(data) = trimmed.strip_prefix("KARNELOS_PROFILE:") {
+            store_system_profile(data);
+            stream.write_all(b"OK\n")?;
+            stream.flush()?;
+        } else if let Some(prompt) = trimmed.strip_prefix("KARNELOS_GEN:") {
             let result = generate_and_build(prompt)?;
             // result = "<size>\n<binary ELF>". The kernel ACKs each chunk
             // (and on size-parse / finalize) so we pace the stream and

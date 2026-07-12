@@ -318,6 +318,22 @@ fn cmd_perf(args: &[u8]) {
         let profile = crate::metrics::format_metrics_profile();
         crate::filesystem::write_file(b"system_profile", &profile);
         io::console_write(b"System profile written to 'system_profile'\r\n");
+    } else if args_trimmed == b"upload" {
+        let profile = crate::metrics::format_metrics_profile();
+        // Send profile to daemon via COM2
+        io::serial_write_port(io::COM2, b"KARNELOS_PROFILE:");
+        // Escape problematic chars and send
+        for &b in &profile {
+            if b == b'\n' {
+                io::serial_putc_port(io::COM2, b' ');
+            } else if b == b'\r' {
+                // skip
+            } else {
+                io::serial_putc_port(io::COM2, b);
+            }
+        }
+        io::serial_write_port(io::COM2, b"\n");
+        io::console_write(b"Profile uploaded to daemon\r\n");
     } else if args_trimmed == b"clear" || args_trimmed == b"reset" {
         crate::metrics::format_metrics(true);
         io::console_write(b"Metrics cleared\r\n");
