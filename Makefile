@@ -1,6 +1,6 @@
 .PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon generate clean daemon-build userspace userspace-test userspace-clean
 
-KERNEL_IMG = kernel/target/x86_64-karnelos/debug/bootimage-karnelos-kernel.bin
+KERNEL_IMG = kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin
 STORAGE_IMG = storage.img
 
 all: build
@@ -13,6 +13,7 @@ $(STORAGE_IMG):
 	fi
 
 build:
+	cd kernel && cargo +nightly-2025-07-08 build --target x86_64-unknown-none
 	cd tools/mkimage && cargo +nightly-2025-07-08 run
 
 QEMUFLAGS = -drive format=raw,file=$(KERNEL_IMG) -drive file=$(STORAGE_IMG),format=raw,if=ide,index=2 -m 4G -cpu max -nic none -device isa-debug-exit,iobase=0xf4,iosize=0x04

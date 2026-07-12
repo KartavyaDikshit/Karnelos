@@ -58,7 +58,15 @@ fn banner_serial() {
     io::serial_write(b"\r\n");
 }
 
-bootloader_api::entry_point!(kernel_main);
+pub static CONFIG: bootloader_api::BootloaderConfig = {
+    let mut config = bootloader_api::BootloaderConfig::new_default();
+    config.kernel_stack_size = 4 * 1024 * 1024;
+    config.mappings.physical_memory = Some(bootloader_api::config::Mapping::Dynamic);
+    config.mappings.page_table_recursive = Some(bootloader_api::config::Mapping::Dynamic);
+    config
+};
+
+bootloader_api::entry_point!(kernel_main, config = &CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     io::debug_write(b"Karnelos booting...\n");
@@ -66,7 +74,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     io::serial_init();
     io::serial_init_port(io::COM2);
 
-    // Initialize framebuffer from bootloader-provided info
     if let Some(fb) = boot_info.framebuffer.as_ref() {
         let info = fb.info();
         io::init_framebuffer(
@@ -113,7 +120,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn shell_main_loop() -> ! {
-    // Print prompt once on each entry (handles both first boot and user exit restart)
     {
         unsafe {
             if let Some(ref mut shell) = SHELL {

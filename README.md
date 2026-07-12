@@ -33,9 +33,12 @@ The LLM generates **Rust ring-3 ELF apps** — no kernel recompile, no reboot:
 2. **Daemon** forwards the prompt to Ollama (`qwen2.5-coder:1.5b`), generates
    a userspace app (`userspace/src/main.rs`), and builds it as a PIE ELF
 3. **ELF streamed over COM2** — The daemon sends `<size>\n<binary>` back to the kernel
+   with **256-byte chunked streaming + ACK flow control** to prevent UART FIFO overflows
 4. **`run` (or auto-run)** — The kernel parses the ELF, maps it into a fresh process
    address space, and executes it in ring 3 via `iretq`
-5. **App exits** — returns to the shell prompt, ready for the next `gen`
+5. **`app save <name>`** — Persist the last generated ELF to storage for later use
+6. **`app run <name>`** — Load and execute a saved app from storage
+7. **App exits** — returns to the shell prompt, ready for the next `gen`
 
 ### Userspace Execution (Phase 3a)
 Ring 3 userspace is fully operational:
@@ -59,18 +62,27 @@ A block device driver and flat filesystem provide persistence across reboots:
 - **ATA PIO block driver** (`ata.rs`) over the IDE controller (secondary channel, master)
 - **Flat filesystem** (`filesystem.rs`): superblock + directory (64 entries) + block bitmap
   + data sectors
-- **`storage` shell command:**
+- **`storage` and `app` shell commands:**
   - `storage format` — Initialize the disk
   - `storage write <name> <text>` — Write a file
   - `storage read <name>` — Read a file
   - `storage ls` — List files
   - `storage info` — Show disk info
+  - `app save <name>` — Save the last generated ELF to storage
+  - `app run <name>` — Load and run a saved ELF from storage
 
 > **Note on block backend:** The plan called for virtio-blk, but QEMU 11 dropped the
 > legacy virtio queue interface. ATA PIO is reliable across QEMU versions and provides the
 > same block-level API; virtio-blk can be revisited later for performance.
 
-### Demo
+### Known Issues & Fixes
+
+- **Kernel stack probe (bootloader v0.11):** The bootloader's default `kernel_stack_size`
+  (80 KiB) is too small for the compiler's auto-generated 2 MiB stack probe. The kernel
+  must supply a `BootloaderConfig` with `kernel_stack_size` set to at least 4 MiB via
+  the `entry_point!(kernel_main, config = &CONFIG)` macro syntax.
+
+## Demo
 
 ```
 karnelos> gen print the numbers 1 through 5
@@ -164,7 +176,7 @@ karnelos/
 │   │   ├── ata.rs           # ATA PIO block driver
 │   │   └── filesystem.rs    # Flat filesystem
 │   ├── builder/             # Bootloader disk-image builder
-│   ├── x86_64-karnelos.json # Custom target spec (PIC, soft-float)
+│   ├── .cargo/config.toml   # Target config (relocation-model=static)
 │   └── Cargo.toml
 ├── userspace/          # Ring-3 app template (overwritten by daemon)
 │   ├── src/

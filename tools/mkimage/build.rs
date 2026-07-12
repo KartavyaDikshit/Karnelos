@@ -4,11 +4,10 @@ use std::process::Command;
 fn main() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let kernel_manifest = manifest_dir.join("../../kernel/Cargo.toml");
-    let kernel_target_spec = manifest_dir.join("../../kernel/x86_64-karnelos.json");
     let kernel_bin = manifest_dir
-        .join("../../kernel/target/x86_64-karnelos/debug/karnelos-kernel");
+        .join("../../kernel/target/x86_64-unknown-none/debug/karnelos-kernel");
     let out_bin = manifest_dir.join(
-        "../../kernel/target/x86_64-karnelos/debug/bootimage-karnelos-kernel.bin",
+        "../../kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin",
     );
 
     // Build the kernel first. We use a nightly explicitly so that
@@ -17,7 +16,7 @@ fn main() {
         .arg("+nightly-2025-07-08")
         .arg("build")
         .arg("--target")
-        .arg(&kernel_target_spec)
+        .arg("x86_64-unknown-none")
         .arg("-Zbuild-std=core,alloc")
         .arg("-Zbuild-std-features=compiler-builtins-mem")
         .arg("--manifest-path")

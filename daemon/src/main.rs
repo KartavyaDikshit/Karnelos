@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 #[derive(Deserialize)]
 struct OllamaResponse {
@@ -155,6 +156,8 @@ fn generate_and_build(prompt: &str) -> Result<Vec<u8>> {
 }
 
 fn handle_connection(mut stream: TcpStream) -> Result<()> {
+    // Bound the ACK reads so a misbehaving kernel can't hang the daemon.
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let addr = stream.peer_addr()?;
     eprintln!("[daemon] Connection from {}", addr);
 
@@ -167,8 +170,34 @@ fn handle_connection(mut stream: TcpStream) -> Result<()> {
 
         if let Some(prompt) = trimmed.strip_prefix("KARNELOS_GEN:") {
             let result = generate_and_build(prompt)?;
-            stream.write_all(&result)?;
+            // result = "<size>\n<binary ELF>". The kernel ACKs each chunk
+            // (and on size-parse / finalize) so we pace the stream and
+            // never overflow its 16-byte UART FIFO.
+            let nl = result
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(result.len());
+            let size_line = &result[..=nl];
+            let elf = &result[nl + 1..];
+
+            stream.write_all(size_line)?;
             stream.flush()?;
+            let mut ack = [0u8; 1];
+            stream.read_exact(&mut ack)?; // kernel ACKs the size
+
+            const CHUNK: usize = 256;
+            let mut sent = 0usize;
+            while sent < elf.len() {
+                let end = (sent + CHUNK).min(elf.len());
+                stream.write_all(&elf[sent..end])?;
+                stream.flush()?;
+                sent = end;
+                if sent < elf.len() {
+                    stream.read_exact(&mut ack)?; // per-chunk ACK
+                }
+            }
+            stream.read_exact(&mut ack)?; // final ACK (keeps stream clean)
+            eprintln!("[daemon] Streamed {} ELF bytes", elf.len());
         }
         line.clear();
     }
