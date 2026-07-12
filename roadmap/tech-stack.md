@@ -6,23 +6,24 @@
 |---|---|---|
 | **Language** | Rust (no_std, nightly) | Memory safety without GC, LLVM backend, zero-cost abstractions |
 | **Target** | `x86_64-unknown-none` | Standard bare-metal x86-64 target |
-| **Bootloader** | `bootloader` crate (via `bootimage`) | Well-documented, handles BIOS/UEFI, GDT, long mode transition |
+| **Bootloader** | `bootloader` crate v0.11.15 | Well-documented, handles BIOS, GDT, long mode transition, framebuffer |
 | **CPU Architecture** | x86-64 | Ubiquitous, well-understood by LLMs, QEMU support |
-| **Build Tool** | `bootimage` + `cargo` | Creates bootable disk image from kernel ELF |
+| **Build Tool** | `mkimage` (custom) + `cargo` | Creates bootable disk image from kernel ELF using bootloader's `BiosBoot::create_disk_image` |
 
 ### Key Crates
 - `x86_64` — x86-64 CPU primitives (GDT, IDT, page tables, MSRs)
 - `uart_16550` — UART serial driver
+- `bootloader` — Bootloader library (v0.11.15)
+- `linked_list_allocator` — Heap allocator
 - `acpi` — ACPI table parsing (for bare metal)
 
-## LLM System Service
+## LLM System Service (Host Daemon)
 
 | Component | Choice | Rationale |
 |---|---|---|
-| **Inference Engine** | llama.cpp (C++ → C FFI) or `candle` (Rust native) | Both are local-first, MIT/APACHE licensed |
-| **Default Model** | Qwen2.5-Coder 1.5B (Q4 quantized, ~1GB) | Good codegen quality, fits in 4GB RAM |
-| **User Context** | SQLite via `rusqlite` | Embedded, reliable, no server needed |
-| **Vector Search** | `fastembed` (Rust) or custom cosine similarity | Lightweight local embeddings for RAG |
+| **Inference Engine** | Ollama (host-side) | Simple integration, no in-kernel complexity |
+| **Default Model** | Qwen2.5-Coder 1.5B | Good codegen quality, fits in 4GB RAM |
+| **Communication** | TCP :12345 → COM2 serial | Reliable streaming with ACK flow control |
 
 ### Model Tiers
 | Tier | Model | Size | RAM Req | Quality |
@@ -45,7 +46,7 @@
 | Tool | Version | Purpose |
 |---|---|---|
 | Rust | nightly (1.99+) | Kernel development |
-| `bootimage` | 0.10+ | Bootable image creation |
+| `bootloader` crate | 0.11.15 | Bootable image creation via `mkimage` |
 | QEMU | 11.0+ | VM for testing |
 | `rust-lld` | Bundled | Linker for kernel ELF |
 | LLVM | Bundled with Rust | Code generation backend |
@@ -58,9 +59,9 @@ For Phase 0-6, development happens on the host machine:
 - Generated code is cross-compiled on the host
 - QEMU boots the kernel image
 
-The generator CLI (`generator/`) orchestrates this:
+The daemon (`daemon/`) orchestrates this:
 ```
-User prompt → generator → Ollama → generated .rs → cargo bootimage → QEMU
+User prompt → kernel shell → COM2 → daemon → Ollama → generated .rs → cargo build → ELF → COM2 → kernel
 ```
 
 ## Future (Phase 7+)
@@ -68,6 +69,6 @@ User prompt → generator → Ollama → generated .rs → cargo bootimage → Q
 | Component | Target | Notes |
 |---|---|---|
 | **Self-hosting** | Everything runs inside the VM | LLM, compiler, generator all bundled in boot image |
-| **Bare metal** | x86-64 UEFI | Replace `bootloader` with `limine` for UEFI support |
+| **Bare metal** | x86-64 UEFI | Replace `bootloader` crate with UEFI support |
 | **GPU** | Vulkan/ROCm/CUDA | LLM inference acceleration |
 | **Cloud** | Firecracker microVMs | Per-tenant hardware-optimized instances |

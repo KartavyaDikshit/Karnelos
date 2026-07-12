@@ -7,41 +7,40 @@ Karnelos is a complete operating system where:
 1. **The kernel is a real, working Rust no_std kernel** that manages x86-64 hardware:
    memory, processes, devices, interrupts, and persistent storage.
 
-2. **A local LLM (the "Kernel AI")** runs as a privileged system service, listening
-   on the console. It generates, compiles, and deploys user-requested software in
-   real time.
+2. **A local LLM (via host daemon + Ollama)** generates, compiles, and deploys
+   user-requested software in real time. The daemon communicates with the kernel
+   over a second serial port (COM2).
 
 3. **Everything beyond the base kernel is generated.** Apps, tools, filesystem layouts,
    IPC protocols, key bindings, compilers, document formats — all produced by the LLM
    to fit the exact hardware and the exact user.
 
-4. **The system improves with use.** Persistent user context (SQLite + vector RAG)
-   records preferences, past tasks, and performance data. The LLM consults this
-   context to produce better results over time.
+4. **The system improves with use.** Persistent storage preserves user data and
+   generated apps across reboots. Future phases will add performance feedback loops
+   and user context databases.
 
-5. **Hardware optimization is a first-class concern.** Before generating any code,
-   the LLM knows the CPU microarchitecture, cache topology, SIMD capabilities, and
-   memory size. Generated code is compiled with `-march=native -O3` and profiled.
+5. **Hardware optimization is a first-class concern.** The kernel runs on real x86-64
+   hardware with memory management, interrupt handling, and device drivers.
 
 ## What's In Scope
 
 ### The Base Kernel (shipped with the OS)
-- x86-64 boot (Limine or UEFI)
+- x86-64 boot (bootloader crate, BIOS)
 - Physical and virtual memory management
-- Process/thread scheduler
-- Interrupt handling (APIC, I/O APIC)
-- Device drivers: UART serial, PS/2 keyboard, virtio-blk, virtio-net
-- Persistent storage (block device → filesystem)
-- Syscall interface for user-space programs
+- Single process model (multitasking deferred)
+- Interrupt handling (PIC, IDT)
+- Device drivers: UART serial (COM1+COM2), PS/2 keyboard, ATA PIO
+- Persistent storage (ATA PIO block device → flat filesystem)
+- Syscall interface for user-space programs (int 0x80)
 - Sandbox for executing generated code (Ring 3)
+- Framebuffer console with bitmap font
 
-### The LLM System Service
-- Local LLM runtime (llama.cpp or candle, statically linked)
-- Hardware detection and profiling
-- User context database (SQLite + vector embeddings)
+### The LLM System Service (Host Daemon)
+- Ollama integration (qwen2.5-coder:1.5b)
 - Code generation, compilation, and deployment pipeline
-- Guardrails: validation, static analysis, performance benchmarking
-- Console/CLI interface (the "shell")
+- ELF streaming over TCP/COM2 with ACK flow control
+- Guardrails: code fence stripping, build error detection
+- Console/CLI interface (the shell)
 
 ### Generated Components
 - User applications (calendar, todo, editor, etc.)
@@ -52,24 +51,25 @@ Karnelos is a complete operating system where:
 - Filesystem organization (directory structure, naming conventions)
 
 ### User Experience
-- Boot → LLM starts → user describes what they need
+- Boot → shell prompt → user types `gen <prompt>` or shell commands
 - Real-time code generation, compilation, and execution
-- Persistent context across sessions
-- Ability to modify or extend any generated component
+- Persistent storage across reboots
+- Ability to save and run generated apps from storage
 
 ## What's Out of Scope (for now)
 
-### Phase 0-3
-- GUI / graphical display (serial console only)
+### Phase 0-5b
+- GUI / graphical display (framebuffer console only)
 - Networking (beyond local loopback for LLM)
 - Multi-user support
 - GPU acceleration for the LLM (CPU inference only)
 - Binary compatibility with Linux/POSIX
+- Multitasking / preemptive scheduling
 
-### Phase 4+
-- GUI (VirtIO GPU, framebuffer)
-- Networking (TCP/IP stack for future cloud use)
+### Phase 6+
+- In-kernel LLM inference
 - SMP optimization and advanced scheduling
+- Networking (TCP/IP stack for future cloud use)
 - Custom microkernel architecture (if we migrate from monolithic)
 
 ## Target Hardware
@@ -77,7 +77,7 @@ Karnelos is a complete operating system where:
 ### Development (QEMU VM)
 - x86-64, 4 cores, 4GB RAM
 - CPU: Skylake-Server (AVX2)
-- Devices: UART, PS/2, virtio-blk, virtio-net, virtio-gpu
+- Devices: UART (COM1+COM2), PS/2, ATA PIO (IDE)
 
 ### Future (bare metal)
 - x86-64 with UEFI

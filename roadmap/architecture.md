@@ -5,16 +5,15 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  USER INTERFACE                                              │
-│  UART serial console (Phase 0-2) → Terminal UI (Phase 3+)    │
-│  The user types goals, the OS responds with generated code   │
+│  UART serial console (shell prompt)                          │
+│  The user types commands, the OS responds with output        │
 ├─────────────────────────────────────────────────────────────┤
-│  LLM SYSTEM SERVICE (Ring 0/1, privileged)                   │
+│  HOST DAEMON (host machine, TCP :12345)                      │
 │  ┌───────────────────────────────────────────────────────┐   │
-│  │ • Local LLM inference engine (llama.cpp / candle)     │   │
-│  │ • Hardware profiler (CPUID, cache, SIMD, RAM detect)  │   │
-│  │ • User context + RAG (SQLite + vector embeddings)     │   │
-│  │ • Code generator → compiler → deploy pipeline         │   │
-│  │ • Validation + guardrail enforcement                  │   │
+│  │ • Ollama integration (qwen2.5-coder:1.5b)           │   │
+│  │ • Code generation pipeline (prompt → LLM → ELF)      │   │
+│  │ • ELF streaming over TCP/COM2 with ACK flow control   │   │
+│  │ • Build error detection + guardrails                  │   │
 │  └───────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  GENERATED COMPONENTS (Ring 3, user space)                   │
@@ -23,54 +22,83 @@
 │  │ (editor,│ │ (file mgr│ │ (latex,   │ │ (generated     │  │
 │  │  calc)  │ │  search) │ │  MD→PDF)  │ │  on request)   │  │
 │  └─────────┘ └──────────┘ └───────────┘ └────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │  Userspace runtime (rt.rs): _start, syscall! macro,    │   │
+│  │  bump allocator, mem ops, panic/alloc handlers          │   │
+│  └────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  KARNELOS BASE KERNEL (Ring 0, Rust no_std)                  │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │ Memory   │ │ Sched-   │ │ Device   │ │ Syscall / IPC  │  │
-│  │ Manager  │ │ uler     │ │ Drivers  │ │ Interface      │  │
-│  │ (page    │ │ (coop →  │ │ (UART,   │ │ (read, write,  │  │
-│  │  alloc)  │ │  preempt)│ │  PS/2,   │ │  exec, mmap)   │  │
-│  │          │ │          │ │  virtio) │ │                │  │
+│  │ Memory   │ │ Process  │ │ Device   │ │ Syscall / IPC  │  │
+│  │ Manager  │ │ Model    │ │ Drivers  │ │ Interface      │  │
+│  │ (page    │ │ (single  │ │ (UART,   │ │ (int 0x80:     │  │
+│  │  alloc)  │ │  process)│ │  PS/2,   │ │  exit, write,  │  │
+│  │          │ │          │ │  ATA)    │ │  read, storage) │  │
+│  │          │ │          │ │          │ │                │  │
 │  └──────────┘ └──────────┘ └──────────┘ └────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │  Bootloader (bootloader crate v0.11.15, BIOS boot)     │   │
+│  │  Provides: framebuffer, physical memory map, page tables │   │
+│  └────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  HARDWARE (x86-64, QEMU VM → bare metal)                    │
-│  CPU · RAM · UART · PS/2 · virtio-blk · virtio-net          │
+│  CPU · RAM · UART (COM1+COM2) · PS/2 · ATA PIO               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Data Flow
 
+### AI-Native App Generation
 ```
-User: "build me a calendar with reminders"
+User: "gen print the numbers 1 through 5"
         │
         ▼
 ┌─────────────────────────┐
-│  LLM System Service     │
-│                         │
-│  1. Read user context    │
-│     (past tasks, prefs) │
-│  2. Read hardware profile│
-│     (AVX2, 4 cores,     │
-│      4GB RAM, cache)    │
-│  3. Generate code        │
-│     - calendar.rs       │
-│     - storage.rs        │
-│     - Cargo.toml        │
-│  4. Validate code        │
-│     (cargo check,       │
-│      static analysis)   │
-│  5. Compile              │
-│     (rustc -march=...   │
-│      -C opt-level=3)    │
-│  6. Deploy to /apps/     │
-│  7. Update user context  │
+│  Shell (kernel)         │
+│  Sends prompt over COM2 │
+└─────────┬───────────────┘
+          │
+          ▼
+┌─────────────────────────┐
+│  Host Daemon (:12345)    │
+│  1. Forward prompt to    │
+│     Ollama               │
+│  2. LLM generates code   │
+│  3. Write userspace/     │
+│     src/main.rs          │
+│  4. cargo build (PIE ELF)│
+│  5. Stream ELF over TCP  │
+│     (256B chunks + ACK)  │
 └─────────────────────────┘
-        │
-        ▼
-User sees calendar running in terminal
+          │
+          ▼
+┌─────────────────────────┐
+│  Kernel (shell)         │
+│  1. Receive ELF over COM2│
+│  2. Parse ELF headers   │
+│  3. Map PT_LOAD segments │
+│  4. Clone page tables    │
+│  5. iretq to ring 3     │
+│  6. App runs, exits      │
+│  7. Return to shell     │
+└─────────────────────────┘
 ```
 
 ## The Kernel AI (LLM System Service)
+
+### Current Architecture (Phase 0-5b)
+The LLM runs as a **host-side daemon** communicating over a second serial port (COM2).
+This provides the full AI-native OS loop without the complexity of running an LLM
+in-kernel. The daemon:
+- Listens on TCP :12345 for prompts from the kernel
+- Forwards prompts to Ollama (qwen2.5-coder:1.5b)
+- Generates userspace Rust code, builds it as a PIE ELF
+- Streams the ELF back over TCP/COM2 with 256-byte chunked ACK flow control
+
+### Future (Phase 7+)
+- In-kernel LLM inference (llama.cpp or candle linked into kernel)
+- Model weights loaded at boot (Q4 quantized)
+- Hardware detection engine (CPUID, cache, RAM, SIMD)
 
 ### Guardrail Architecture
 
@@ -126,15 +154,14 @@ The LLM has layered constraints to prevent generating code that breaks the syste
 ## Boot Sequence
 
 ```
-1. Limine loads kernel ELF from disk
-2. Bootloader enters long mode, sets up page tables
+1. Bootloader (bootloader crate v0.11.15) loads kernel ELF from disk
+2. Bootloader enters long mode, sets up page tables, framebuffer
 3. Kernel entry (_start):
    a. Set up GDT/IDT/TSS
-   b. Initialize serial port (UART)
-   c. Initialize memory manager
-   d. Initialize scheduler
-   e. Load LLM weights + start inference engine
-   f. Read user context from persistent storage
-   g. Generate initial shell/boot-time components
-   h. Present CLI to user
+   b. Initialize serial ports (COM1 + COM2)
+   c. Initialize memory manager (frame allocator, heap)
+   d. Initialize PS/2 keyboard driver
+   e. Initialize ATA PIO block driver + filesystem
+   f. Present shell prompt to user
+   g. (Optional) Host daemon listens on :12345 for gen commands
 ```

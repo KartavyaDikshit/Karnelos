@@ -193,7 +193,7 @@ host:  prompt ─► daemon ─build(userspace target)─► ELF ─COM2(TCP)─
 
 ## Phase 5b: Generated Applications — Persistence + Demos
 
-**Status: In progress (next phase)**
+**Status: Complete**
 
 Turn the working ELF pipeline into a usable app platform. Scope chosen for this
 phase: **persistence + lightweight demos** (no LLM-quality-dependent showcase
@@ -201,20 +201,19 @@ apps yet). Live `gen` requires `ollama serve` + `qwen2.5-coder:1.5b`; all
 build/test work here is verifiable **without** a running LLM.
 
 ### Deliverables / Milestones
-- [ ] **M6a — COM2 flow control (correctness fix).** The kernel polls COM2
+- [x] **M6a — COM2 flow control (correctness fix).** The kernel polls COM2
       one byte at a time in `shell_main_loop`; QEMU's UART has only a 16-byte
       FIFO, so a multi-KB ELF blasted by the daemon **overflows and drops
-      bytes**. Add a minimal handshake: after the kernel reads the decimal size and
-      enters `AwaitingData`, it writes **one ACK byte back on COM2**; the daemon
-      waits for that ACK before streaming the binary. (Stretch: chunked ACK every
-      N bytes for very large ELFs.)
-- [ ] **M6b — App persistence** (`app save` / `app run`): the flat FS already
+      bytes**. Added 256-byte chunked transfer with ACK flow control: the kernel
+      writes an ACK byte back on COM2 after each chunk; the daemon waits for the
+      ACK before sending the next chunk.
+- [x] **M6b — App persistence** (`app save` / `app run`): the flat FS already
       stores raw bytes (`filesystem::write_file(name, &[u8])` /
       `read_file(name, &mut [u8]) -> usize`), so:
   - `app save <name>` → `write_file(name, &shell.last_elf[..last_elf_len])`
   - `app run <name>` → `read_file` into a buffer, then `process::run_elf(slice)`
   - Add `app` dispatch in `shell::execute` + `cmd_app`; update `help`
-- [ ] **M6c — Lightweight demo validation (no LLM needed):**
+- [x] **M6c — Lightweight demo validation (no LLM needed):**
   - `user` command (ring-3 inline demo) exercises the `run_elf`/`iretq`/exit path
   - `make userspace` builds the checked-in counter app → confirm PIE, no relocs
   - Feed that built ELF through `app save <name>` / `app run <name>` to prove
@@ -327,7 +326,7 @@ Real LLM-generated apps on top of the Phase 5b platform:
 | 3a - Userspace | 1-2 weeks | Phase 2 | ✅ Complete |
 | 4 - Persistent Storage | 1-2 weeks | Phase 1 | ✅ Complete |
 | 5 - ELF loader + process model | 2-3 weeks | Phase 3a, 4 | ✅ Complete |
-| 5b - App persistence + demos | ~1 week | Phase 5 | 🔶 In progress |
+| 5b - App persistence + demos | ~1 week | Phase 5 | ✅ Complete |
 | 5c - Showcase apps | 3-4 weeks | Phase 5b | ❌ Not started |
 | 6 - Self-Improving | 3-4 weeks | Phase 5b | ❌ Not started |
 | 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |
