@@ -1,4 +1,4 @@
-.PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon generate clean daemon-build userspace userspace-test userspace-clean
+.PHONY: all build run run-nographic run-debug run-cocoa run-smp run-daemon run-selfhosted deploy generate clean daemon-build userspace userspace-test userspace-clean
 
 KERNEL_IMG = kernel/target/x86_64-unknown-none/debug/bootimage-karnelos-kernel.bin
 STORAGE_IMG = storage.img
@@ -54,6 +54,22 @@ run-daemon: build daemon-build $(STORAGE_IMG)
 # Quick smoke test (boots and exits after 10s)
 run-test: build $(STORAGE_IMG)
 	gtimeout 10 qemu-system-x86_64 $(QEMUFLAGS) -nographic -no-reboot 2>&1; echo "---"
+
+deploy: build userspace-bins daemon-build
+	@echo "--- Deploy build complete ---"
+	@echo "Run with: make run | make run-daemon | make run-selfhosted"
+
+run-selfhosted: deploy
+	@echo "Starting Karnelos self-hosted (daemon + QEMU)..."
+	DAEMON_PID=$$(pgrep -f "daemon/target" 2>/dev/null || true); \
+	if [ -n "$$DAEMON_PID" ]; then kill -9 $$DAEMON_PID 2>/dev/null || true; sleep 1; fi
+	(cd daemon && cargo run --release &) && \
+	sleep 2 && \
+	while true; do \
+		qemu-system-x86_64 $(QEMUFLAGS) $(QEMUFLAGS_SERIAL) -nographic -no-reboot || true; \
+		echo "--- QEMU exited (restarting...) ---"; \
+		sleep 1; \
+	done
 
 # Build the daemon
 daemon-build:

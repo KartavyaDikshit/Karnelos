@@ -305,9 +305,12 @@ Real LLM-generated apps on top of the Phase 5b platform:
 
 ## Phase 7: Self-Hosted Image
 
-**Status: Not started**
+**Status: In progress**
 
 ### Deliverables
+- [x] **`make deploy` target** — builds kernel + all userspace bins + daemon in one command
+- [x] **`make run-selfhosted`** — starts daemon + QEMU together with auto-restart loop
+- [x] **`scripts/run.sh`** — full self-hosted runner script with daemon lifecycle management
 - [ ] Single `.img` file with bootloader + kernel + LLM weights + user data partition
 - [ ] Bootstrap sequence: boot → detect HW → load LLM → generate production kernel
 - [ ] No dependency on host machine for generation
@@ -357,4 +360,4 @@ Real LLM-generated apps on top of the Phase 5b platform:
 | 5b - App persistence + demos | ~1 week | Phase 5 | ✅ Complete |
 | 5c - Showcase apps | 3-4 weeks | Phase 5b | 🔶 In progress |
 | 6 - Self-Improving | 3-4 weeks | Phase 5b | 🔶 In progress |
-| 7 - Self-Hosted | 2-3 weeks | Phase 6 | ❌ Not started |
+| 7 - Self-Hosted | 2-3 weeks | Phase 6 | 🔶 In progress |
