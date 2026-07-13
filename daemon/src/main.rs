@@ -220,6 +220,36 @@ fn handle_connection(mut stream: TcpStream) -> Result<()> {
             store_system_profile(data);
             stream.write_all(b"OK\n")?;
             stream.flush()?;
+        } else if trimmed.starts_with("KARNELOS_BOOTSTRAP") {
+            eprintln!("[daemon] Bootstrap sequence triggered by kernel");
+            // Generate an initial cycle: detect HW → gen core components
+            let bootstrap_prompt = "print the system banner and available commands";
+            match generate_and_build(bootstrap_prompt) {
+                Ok(result) => {
+                    let nl = result.iter().position(|&b| b == b'\n').unwrap_or(result.len());
+                    let size_line = &result[..=nl];
+                    let elf = &result[nl + 1..];
+                    stream.write_all(size_line)?;
+                    stream.flush()?;
+                    let mut ack = [0u8; 1];
+                    stream.read_exact(&mut ack)?;
+                    const CHUNK: usize = 256;
+                    let mut sent = 0usize;
+                    while sent < elf.len() {
+                        let end = (sent + CHUNK).min(elf.len());
+                        stream.write_all(&elf[sent..end])?;
+                        stream.flush()?;
+                        sent = end;
+                        if sent < elf.len() { stream.read_exact(&mut ack)?; }
+                    }
+                    stream.read_exact(&mut ack)?;
+                    eprintln!("[daemon] Bootstrap ELF streamed");
+                }
+                Err(e) => {
+                    eprintln!("[daemon] Bootstrap generation error: {}", e);
+                    let _ = stream.write_all(b"ERROR\n");
+                }
+            }
         } else if let Some(prompt) = trimmed.strip_prefix("KARNELOS_GEN:") {
             let result = generate_and_build(prompt)?;
             // result = "<size>\n<binary ELF>". The kernel ACKs each chunk

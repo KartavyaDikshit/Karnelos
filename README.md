@@ -143,6 +143,9 @@ ollama pull qwen2.5-coder:1.5b
 # Build only
 make build
 
+# Build everything (kernel + all userspace apps + daemon)
+make deploy
+
 # Terminal mode (serial console)
 make run-nographic
 
@@ -152,8 +155,21 @@ make run
 # Full AI-native OS loop (daemon + QEMU in restart loop)
 make run-daemon
 
+# Self-hosted experience (daemon + QEMU, auto-restart, profile upload)
+make run-selfhosted
+
 # Generate code via LLM (standalone CLI)
 make generate PROMPT="print hello world"
+
+# Bootstrap the entire dev environment (toolchain, model, builds)
+scripts/bootstrap.sh
+
+# Self-hosted runner script
+scripts/run.sh
+
+# Docker-based build (reproducible environment)
+docker build -t karnelos .
+docker run -p 12345:12345 karnelos
 
 # Clean
 make clean
@@ -192,6 +208,10 @@ karnelos/
 ├── generator/          # Standalone CLI code generator
 │   ├── src/main.rs
 │   └── Cargo.toml
+├── scripts/            # Self-hosted runner and bootstrap scripts
+│   ├── bootstrap.sh    # Full dev environment setup
+│   └── run.sh          # Daemon + QEMU runner
+├── Dockerfile          # Reproducible build environment
 ├── tools/
 │   └── mkimage/        # Custom disk-image build pipeline
 ├── roadmap/            # Project scope, architecture, phase plan

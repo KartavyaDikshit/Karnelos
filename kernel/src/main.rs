@@ -136,6 +136,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     io::serial_write_port(io::COM2, b"\n");
 
+    // Bootstrap: if storage is formatted and empty, trigger daemon to generate starter apps
+    if ata::is_present() && filesystem::is_formatted() {
+        let dir = filesystem::read_dir_raw();
+        let has_files = (0..64).any(|i| dir[i * 64] != 0);
+        if !has_files {
+            io::console_write(b"No apps found. Requesting bootstrapper daemon...\r\n");
+            io::serial_write_port(io::COM2, b"KARNELOS_BOOTSTRAP\n");
+        }
+    }
+
     let s = shell::Shell::new(b"karnelos> ");
     unsafe { SHELL = Some(s); }
 
