@@ -16,6 +16,7 @@ mod process;
 mod ata;
 mod filesystem;
 mod metrics;
+mod smp;
 
 pub static mut SHELL: Option<shell::Shell> = None;
 
@@ -98,6 +99,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     io::debug_write(b"Initializing interrupts\n");
     interrupts::init();
 
+    let rsdp_hint = boot_info.rsdp_addr.into_option();
     io::debug_write(b"Initializing memory\n");
     memory::init(boot_info);
     io::debug_write(b"Initializing heap\n");
@@ -110,6 +112,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         filesystem::format();
         filesystem::clear_bootmode_ephemeral();
     }
+    io::debug_write(b"Initializing SMP\n");
+    smp::init(rsdp_hint);
+
     io::debug_write(b"Initializing userspace\n");
     process::init();
 

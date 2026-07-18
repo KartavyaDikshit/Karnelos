@@ -12,7 +12,7 @@ pub const MAX_FRAMES: usize = (MAX_PHYSICAL_MEMORY / PAGE_SIZE) as usize;
 const BITMAP_SIZE: usize = MAX_FRAMES / 8;
 const HEAP_SIZE: usize = 10 * 1024 * 1024;
 
-fn hex(v: u64) {
+pub fn hex(v: u64) {
     io::console_write(b"0x");
     for s in (0..16).rev() {
         let nib = ((v >> (s * 4)) & 0xF) as u8;

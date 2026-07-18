@@ -320,11 +320,11 @@ pub fn vga_clear(_fg: u8, _bg: u8) {
     let mut fb = FRAMEBUFFER.lock();
     fb.row = 0;
     fb.col = 0;
-    if fb.addr == 0 { return; }
+    if fb.addr == 0 || fb.width == 0 || fb.height == 0 { return; }
     let bg = fb.bg;
-    for y in 0..fb.height {
-        for x in 0..fb.width {
-            let (r, g, b) = vga_color(bg);
+    let (r, g, b) = vga_color(bg);
+    for y in 0..fb.height.min(200) {
+        for x in 0..fb.width.min(640) {
             draw_pixel(&mut fb, x, y, r, g, b);
         }
     }

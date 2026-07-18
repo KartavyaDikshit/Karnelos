@@ -115,7 +115,7 @@ fn build_system_prompt(prompt: &str) -> String {
         \n\
         EXAMPLES:\n\
         'print hello': print(\"Hello\\r\\n\");\n\
-        'count to 5': for i in 1..=5u8 {{ print(&alloc::format!(\"count: {}\\r\\n\", i)); }}\n\
+        'count to 5': for i in 1..=5u8 {{ print(&alloc::format!(\"count: {{}}\\r\\n\", i)); }}\n\
         'write then read file': storage_write(b\"test\", b\"hello\"); let d = storage_read(b\"test\", &mut buf, 256);\n\
         \n\
         Request: {}",
